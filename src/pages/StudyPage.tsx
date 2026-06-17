@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   ChevronLeft, Star, Trophy, RefreshCw, CheckCircle, XCircle,
-  History, RotateCcw, BookOpen, AlertCircle
+  History, RotateCcw, BookOpen, AlertCircle, Lightbulb, ChevronRight
 } from 'lucide-react'
 import { useChild } from '../contexts/ChildContext'
 import { useAuth } from '../contexts/AuthContext'
@@ -585,9 +585,11 @@ export default function StudyPage() {
   const grade = parseGrade(selectedChild?.grade)
   const childId = selectedChild?.id ?? 'default'
 
-  type View = 'menu' | 'quiz' | 'result' | 'history' | 'wrongReview'
+  type View = 'menu' | 'quiz' | 'result' | 'history' | 'wrongReview' | 'concept'
+  type MainTab = 'quiz' | 'learn'
 
   const [view, setView] = useState<View>('menu')
+  const [mainTab, setMainTab] = useState<MainTab>('quiz')
   const [subject, setSubject] = useState<Subject | null>(null)
   const [questions, setQuestions] = useState<Question[]>([])
   const [current, setCurrent] = useState(0)
@@ -727,6 +729,11 @@ export default function StudyPage() {
 
   const subjectInfo = SUBJECTS.find(s => s.key === subject)
   const _correctCount = attempts.filter(a => a.correct).length; void _correctCount
+
+  // ── 원리 이해 화면 ────────────────────────────────────────
+  if (view === 'concept') {
+    return <ConceptPage onBack={() => setView('menu')} />
+  }
 
   // ── 결과 화면 ──────────────────────────────────────────────
   if (view === 'result' && subject && subjectInfo) {
@@ -980,8 +987,54 @@ export default function StudyPage() {
           </div>
         </div>
 
-        {/* 과목 카드 */}
-        <div className="grid grid-cols-1 gap-4 mb-4">
+        {/* 탭 전환 */}
+        <div className="flex bg-gray-100 rounded-2xl p-1 mb-5">
+          <button
+            onClick={() => setMainTab('quiz')}
+            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl font-semibold text-sm transition-all ${
+              mainTab === 'quiz' ? 'bg-white shadow text-indigo-600' : 'text-gray-400 hover:text-gray-600'
+            }`}>
+            ✏️ 퀴즈 풀기
+          </button>
+          <button
+            onClick={() => setMainTab('learn')}
+            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl font-semibold text-sm transition-all ${
+              mainTab === 'learn' ? 'bg-white shadow text-purple-600' : 'text-gray-400 hover:text-gray-600'
+            }`}>
+            💡 원리 이해
+          </button>
+        </div>
+
+        {/* 원리 이해 탭 */}
+        {mainTab === 'learn' && (
+          <div className="space-y-3 mb-4">
+            <p className="text-xs text-gray-400 uppercase tracking-wide font-semibold px-1">개념 학습</p>
+            <button
+              onClick={() => setView('concept')}
+              className="w-full bg-white rounded-2xl shadow-md border border-purple-100 p-5 flex items-center gap-4 hover:shadow-lg transition-all text-left group">
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-purple-400 to-indigo-500 flex items-center justify-center text-3xl flex-shrink-0">
+                📐
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-1">
+                  <p className="font-bold text-gray-800 text-lg">이차방정식</p>
+                  <span className="text-xs bg-purple-100 text-purple-600 px-2 py-0.5 rounded-full font-medium">수학</span>
+                </div>
+                <p className="text-sm text-gray-500">숨어있는 수를 찾아보자! 그림으로 쉽게 배워요</p>
+              </div>
+              <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-purple-400 transition-colors flex-shrink-0" />
+            </button>
+
+            <div className="bg-gray-50 border border-dashed border-gray-200 rounded-2xl p-5 text-center">
+              <Lightbulb className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+              <p className="text-sm text-gray-400 font-medium">더 많은 개념이 곧 추가돼요!</p>
+              <p className="text-xs text-gray-300 mt-1">분수, 도형, 비율 등</p>
+            </div>
+          </div>
+        )}
+
+        {/* 퀴즈 탭 과목 카드 */}
+        {mainTab === 'quiz' && <div className="grid grid-cols-1 gap-4 mb-4">
           {SUBJECTS.map(s => {
             const wrongCount = getWrongCount(childId, s.key, grade)
             return (
@@ -1016,10 +1069,10 @@ export default function StudyPage() {
               </div>
             )
           })}
-        </div>
+        </div>}
 
         {/* 포인트 안내 + 보상 교환소 */}
-        {isChild && (
+        {mainTab === 'quiz' && isChild && (
           <div className="bg-gradient-to-r from-yellow-50 to-orange-50 border border-yellow-200 rounded-2xl p-4 mb-4">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
@@ -1047,7 +1100,7 @@ export default function StudyPage() {
         )}
 
         {/* 부모 뷰 */}
-        {!isChild && selectedChild && (
+        {mainTab === 'quiz' && !isChild && selectedChild && (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
@@ -1244,6 +1297,493 @@ export default function StudyPage() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ── 이차방정식 개념 학습 컴포넌트 ────────────────────────────────
+function ConceptPage({ onBack }: { onBack: () => void }) {
+  const TOTAL_STEPS = 5
+  const [step, setStep] = useState(0)
+  const [squareSize, setSquareSize] = useState(3)
+  const [userAnswer, setUserAnswer] = useState('')
+  const [answered, setAnswered] = useState<boolean | null>(null)
+  const [quizIndex, setQuizIndex] = useState(0)
+  const [animKey, setAnimKey] = useState(0)
+
+  const quizzes = [
+    { q: '? × ? = 4', answer: 2, hint: '2 × 2 = 4' },
+    { q: '? × ? = 25', answer: 5, hint: '5 × 5 = 25' },
+    { q: '? × ? = 36', answer: 6, hint: '6 × 6 = 36' },
+    { q: '? × ? = 49', answer: 7, hint: '7 × 7 = 49' },
+  ]
+
+  const handleAnswer = () => {
+    const ans = parseInt(userAnswer)
+    setAnswered(ans === quizzes[quizIndex].answer)
+  }
+
+  const nextQuiz = () => {
+    if (quizIndex + 1 < quizzes.length) {
+      setQuizIndex(q => q + 1)
+      setUserAnswer('')
+      setAnswered(null)
+    }
+  }
+
+  const goNext = () => { setStep(s => s + 1); setAnswered(null); setUserAnswer(''); setAnimKey(k => k + 1) }
+  const goPrev = () => { setStep(s => s - 1); setAnswered(null); setUserAnswer(''); setAnimKey(k => k + 1) }
+
+  return (
+    <div className="min-h-full p-4 md:p-6 bg-gray-50">
+      <style>{`
+        @keyframes concept-pop { 0%{transform:scale(0.5);opacity:0} 70%{transform:scale(1.1)} 100%{transform:scale(1);opacity:1} }
+        @keyframes concept-slide-up { from{transform:translateY(30px);opacity:0} to{transform:translateY(0);opacity:1} }
+        @keyframes concept-float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
+        @keyframes concept-bounce-x { 0%,100%{transform:translateX(0)} 50%{transform:translateX(6px)} }
+        @keyframes concept-spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+        @keyframes concept-reveal { 0%{opacity:0;transform:scale(0) rotate(-20deg)} 60%{transform:scale(1.2) rotate(5deg)} 100%{opacity:1;transform:scale(1) rotate(0)} }
+        @keyframes concept-pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.08)} }
+        @keyframes concept-shake { 0%,100%{transform:translateX(0)} 20%{transform:translateX(-6px)} 40%{transform:translateX(6px)} 60%{transform:translateX(-4px)} 80%{transform:translateX(4px)} }
+        @keyframes concept-draw { from{stroke-dashoffset:1000} to{stroke-dashoffset:0} }
+        @keyframes concept-fill { from{opacity:0;transform:scaleY(0)} to{opacity:1;transform:scaleY(1)} }
+        @keyframes concept-count { 0%{opacity:0;transform:translateY(-10px)} 100%{opacity:1;transform:translateY(0)} }
+        .anim-pop { animation: concept-pop 0.5s cubic-bezier(.36,.07,.19,.97) forwards }
+        .anim-slide-up { animation: concept-slide-up 0.4s ease-out forwards }
+        .anim-float { animation: concept-float 2.5s ease-in-out infinite }
+        .anim-bounce-x { animation: concept-bounce-x 1s ease-in-out infinite }
+        .anim-pulse { animation: concept-pulse 1.5s ease-in-out infinite }
+        .anim-reveal { animation: concept-reveal 0.6s cubic-bezier(.36,.07,.19,.97) forwards }
+        .anim-shake { animation: concept-shake 0.5s ease }
+        .anim-spin-slow { animation: concept-spin 4s linear infinite }
+        .delay-100 { animation-delay: 0.1s; opacity:0 }
+        .delay-200 { animation-delay: 0.2s; opacity:0 }
+        .delay-300 { animation-delay: 0.3s; opacity:0 }
+        .delay-400 { animation-delay: 0.4s; opacity:0 }
+        .delay-500 { animation-delay: 0.5s; opacity:0 }
+        .delay-600 { animation-delay: 0.6s; opacity:0 }
+        .delay-700 { animation-delay: 0.7s; opacity:0 }
+      `}</style>
+
+      <div className="max-w-lg mx-auto">
+        {/* 상단 */}
+        <div className="flex items-center gap-3 mb-4">
+          <button onClick={onBack} className="flex items-center gap-1 text-gray-500 hover:text-gray-700 text-sm font-medium">
+            <ChevronLeft className="w-4 h-4" /> 돌아가기
+          </button>
+          <div className="flex-1 text-center">
+            <span className="text-sm font-bold text-purple-600">📐 이차방정식</span>
+          </div>
+          <span className="text-xs text-gray-400">{step + 1} / {TOTAL_STEPS}</span>
+        </div>
+
+        {/* 진행 바 */}
+        <div className="h-2 bg-gray-200 rounded-full overflow-hidden mb-5">
+          <div className="h-full bg-gradient-to-r from-purple-400 to-indigo-500 transition-all duration-700 rounded-full"
+            style={{ width: `${((step + 1) / TOTAL_STEPS) * 100}%` }} />
+        </div>
+
+        {/* 컨텐츠 */}
+        <div className="bg-white rounded-2xl shadow-md overflow-hidden mb-4" key={animKey}>
+
+          {/* ══ Step 0: 소개 애니메이션 ══ */}
+          {step === 0 && (
+            <div>
+              {/* SVG 헤더 일러스트 */}
+              <div className="bg-gradient-to-br from-purple-500 to-indigo-600 p-6 flex justify-center">
+                <svg width="240" height="140" viewBox="0 0 240 140">
+                  {/* 별들 */}
+                  {[[20,20],[210,15],[15,110],[225,100],[120,10]].map(([x,y],i)=>(
+                    <text key={i} x={x} y={y} fontSize="14" fill="rgba(255,255,255,0.5)"
+                      style={{animation:`concept-float ${2+i*0.3}s ease-in-out infinite`,animationDelay:`${i*0.2}s`}}>★</text>
+                  ))}
+                  {/* 숫자 블록 3 */}
+                  <g style={{animation:'concept-pop 0.5s ease forwards',opacity:0}}>
+                    <rect x="20" y="50" width="52" height="52" rx="10" fill="#a78bfa"/>
+                    <text x="46" y="83" textAnchor="middle" fontSize="26" fontWeight="bold" fill="white">3</text>
+                  </g>
+                  {/* × 기호 */}
+                  <g style={{animation:'concept-pop 0.5s ease forwards',opacity:0,animationDelay:'0.2s'}}>
+                    <text x="86" y="82" textAnchor="middle" fontSize="22" fill="rgba(255,255,255,0.8)">×</text>
+                  </g>
+                  {/* 숫자 블록 3 */}
+                  <g style={{animation:'concept-pop 0.5s ease forwards',opacity:0,animationDelay:'0.35s'}}>
+                    <rect x="100" y="50" width="52" height="52" rx="10" fill="#a78bfa"/>
+                    <text x="126" y="83" textAnchor="middle" fontSize="26" fontWeight="bold" fill="white">3</text>
+                  </g>
+                  {/* = */}
+                  <g style={{animation:'concept-pop 0.5s ease forwards',opacity:0,animationDelay:'0.5s'}}>
+                    <text x="166" y="82" textAnchor="middle" fontSize="22" fill="rgba(255,255,255,0.8)">=</text>
+                  </g>
+                  {/* 결과 블록 9 */}
+                  <g style={{animation:'concept-reveal 0.6s ease forwards',opacity:0,animationDelay:'0.7s'}}>
+                    <rect x="180" y="44" width="56" height="64" rx="10" fill="#f59e0b"/>
+                    <text x="208" y="84" textAnchor="middle" fontSize="30" fontWeight="bold" fill="white">9</text>
+                    <text x="208" y="100" textAnchor="middle" fontSize="10" fill="rgba(255,255,255,0.8)">정답!</text>
+                  </g>
+                </svg>
+              </div>
+
+              <div className="p-5 text-center">
+                <h2 className="text-2xl font-bold text-gray-800 mb-2 anim-slide-up">이차방정식이 뭐야?</h2>
+                <p className="text-gray-600 leading-relaxed mb-4 anim-slide-up delay-100">
+                  어떤 수를 <strong className="text-purple-600">같은 수로 두 번 곱했을 때</strong> 나오는 답이 있어요.
+                  그 숨어있는 수가 뭔지 찾는 게 <strong className="text-purple-600">이차방정식</strong>이에요!
+                </p>
+
+                <div className="space-y-2">
+                  {([['3','9','#a78bfa'],['4','16','#60a5fa'],['5','25','#34d399']] as [string,string,string][]).map(([n, sq, col], i) => (
+                    <div key={n} className="flex items-center gap-2 bg-gray-50 rounded-xl p-3 anim-slide-up"
+                      style={{animationDelay:`${0.2+i*0.15}s`,opacity:0}}>
+                      <div className="w-9 h-9 rounded-lg flex items-center justify-center text-white font-bold text-lg" style={{background:col}}>{n}</div>
+                      <span className="text-gray-400 font-bold">×</span>
+                      <div className="w-9 h-9 rounded-lg flex items-center justify-center text-white font-bold text-lg" style={{background:col}}>{n}</div>
+                      <span className="text-gray-400 font-bold">=</span>
+                      <div className="flex-1 h-9 rounded-lg flex items-center justify-center font-bold text-lg text-gray-700 bg-white border-2" style={{borderColor:col}}>{sq}</div>
+                      <span className="text-lg">✨</span>
+                    </div>
+                  ))}
+                </div>
+
+                <p className="text-sm text-gray-400 mt-3 anim-slide-up delay-600">같은 수를 두 번 곱하는 것 = <strong className="text-gray-600">제곱</strong> 이라고 해요!</p>
+              </div>
+            </div>
+          )}
+
+          {/* ══ Step 1: 정사각형 애니메이션 ══ */}
+          {step === 1 && (
+            <div>
+              <div className="bg-gradient-to-br from-blue-400 to-cyan-500 p-5 flex justify-center items-end gap-3">
+                {/* 슬라이더 값에 따라 SVG 정사각형이 살아 움직임 */}
+                <svg width="200" height="130" viewBox="0 0 200 130">
+                  {/* 배경 격자 */}
+                  {Array.from({length:squareSize}).map((_,row)=>
+                    Array.from({length:squareSize}).map((_,col)=>{
+                      const size = Math.min(Math.floor(110/squareSize), 26)
+                      const totalW = squareSize*size+(squareSize-1)*2
+                      const ox = (200-totalW)/2
+                      const oy = (130-totalW)/2
+                      return (
+                        <rect key={`${row}-${col}`}
+                          x={ox+col*(size+2)} y={oy+row*(size+2)}
+                          width={size} height={size} rx="3"
+                          fill="rgba(255,255,255,0.85)"
+                          stroke="rgba(255,255,255,0.4)" strokeWidth="1"
+                          style={{
+                            animation:'concept-fill 0.3s ease forwards',
+                            animationDelay:`${(row*squareSize+col)*0.02}s`,
+                            opacity:0,
+                            transformOrigin:`${ox+col*(size+2)+size/2}px ${oy+row*(size+2)+size/2}px`
+                          }}
+                        />
+                      )
+                    })
+                  )}
+                  {/* 가로 화살표 */}
+                  <g style={{animation:'concept-slide-up 0.4s ease forwards',opacity:0,animationDelay:'0.4s'}}>
+                    <line x1="20" y1="118" x2="180" y2="118" stroke="rgba(255,255,255,0.7)" strokeWidth="2" strokeDasharray="4 3"/>
+                    <text x="100" y="128" textAnchor="middle" fontSize="11" fill="rgba(255,255,255,0.9)" fontWeight="bold">가로 = {squareSize}</text>
+                  </g>
+                </svg>
+              </div>
+
+              <div className="p-5 text-center">
+                <h2 className="text-xl font-bold text-gray-800 mb-1">📐 정사각형으로 생각해봐요!</h2>
+                <p className="text-gray-500 text-sm mb-4">슬라이더를 움직여 보세요!</p>
+
+                <div className="flex items-center gap-3 mb-4">
+                  <span className="text-sm text-gray-500 whitespace-nowrap">한 변</span>
+                  <input type="range" min="1" max="7" value={squareSize}
+                    onChange={e => setSquareSize(Number(e.target.value))}
+                    className="flex-1 accent-blue-500 h-3 cursor-pointer" />
+                  <span className="text-2xl font-black text-blue-600 w-8">{squareSize}</span>
+                </div>
+
+                <div className="bg-blue-50 rounded-2xl p-4 anim-pulse">
+                  <div className="flex items-center justify-center gap-4 text-2xl font-black">
+                    <div className="text-center">
+                      <div className="w-12 h-12 bg-blue-500 text-white rounded-xl flex items-center justify-center text-xl mb-1">{squareSize}</div>
+                      <p className="text-xs text-gray-400">가로</p>
+                    </div>
+                    <span className="text-gray-300">×</span>
+                    <div className="text-center">
+                      <div className="w-12 h-12 bg-blue-500 text-white rounded-xl flex items-center justify-center text-xl mb-1">{squareSize}</div>
+                      <p className="text-xs text-gray-400">세로</p>
+                    </div>
+                    <span className="text-gray-300">=</span>
+                    <div className="text-center">
+                      <div className="w-16 h-12 bg-blue-600 text-white rounded-xl flex items-center justify-center text-2xl font-black mb-1" style={{animation:'concept-pop 0.3s ease'}} key={squareSize}>{squareSize*squareSize}</div>
+                      <p className="text-xs text-gray-400">넓이</p>
+                    </div>
+                  </div>
+                  <p className="text-blue-600 text-sm mt-3 font-bold">
+                    정사각형 넓이 = {squareSize} × {squareSize} = {squareSize*squareSize} 칸!
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ══ Step 2: 거꾸로 찾기 (SVG 애니메이션) ══ */}
+          {step === 2 && (
+            <div>
+              <div className="bg-gradient-to-br from-emerald-400 to-teal-500 p-5 flex justify-center">
+                <svg width="280" height="120" viewBox="0 0 280 120">
+                  {/* 왼쪽: 넓이가 9인 정사각형 */}
+                  <g style={{animation:'concept-slide-up 0.4s ease forwards',opacity:0}}>
+                    <text x="40" y="15" textAnchor="middle" fontSize="11" fill="rgba(255,255,255,0.9)" fontWeight="bold">넓이 = 9</text>
+                    {Array.from({length:9}).map((_,i)=>(
+                      <rect key={i} x={10+(i%3)*24} y={22+(Math.floor(i/3))*24} width="20" height="20" rx="3"
+                        fill="rgba(255,255,255,0.8)"
+                        style={{animation:'concept-fill 0.2s ease forwards',animationDelay:`${i*0.04}s`,opacity:0,transformOrigin:`${10+(i%3)*24+10}px ${22+(Math.floor(i/3))*24+10}px`}}/>
+                    ))}
+                    {/* 물음표 */}
+                    <rect x="4" y="90" width="72" height="22" rx="5" fill="rgba(255,255,255,0.2)"/>
+                    <text x="40" y="105" textAnchor="middle" fontSize="12" fill="white" fontWeight="bold">한 변 = ?</text>
+                  </g>
+
+                  {/* 화살표 */}
+                  <g style={{animation:'concept-slide-up 0.4s ease forwards',opacity:0,animationDelay:'0.5s'}}>
+                    <path d="M 88 60 L 108 60" stroke="white" strokeWidth="3" strokeLinecap="round"/>
+                    <path d="M 104 54 L 112 60 L 104 66" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
+                    <text x="98" y="52" textAnchor="middle" fontSize="10" fill="rgba(255,255,255,0.8)">찾자!</text>
+                  </g>
+
+                  {/* 오른쪽: 답 */}
+                  <g style={{animation:'concept-reveal 0.6s ease forwards',opacity:0,animationDelay:'0.8s'}}>
+                    <rect x="118" y="25" width="64" height="64" rx="12" fill="#f59e0b"/>
+                    <text x="150" y="60" textAnchor="middle" fontSize="32" fontWeight="black" fill="white">3</text>
+                    <text x="150" y="80" textAnchor="middle" fontSize="12" fill="rgba(255,255,255,0.9)">한 변!</text>
+                  </g>
+
+                  {/* 확인 식 */}
+                  <g style={{animation:'concept-slide-up 0.4s ease forwards',opacity:0,animationDelay:'1.1s'}}>
+                    <rect x="192" y="30" width="82" height="50" rx="8" fill="rgba(255,255,255,0.15)"/>
+                    <text x="233" y="52" textAnchor="middle" fontSize="14" fill="white" fontWeight="bold">3 × 3</text>
+                    <text x="233" y="70" textAnchor="middle" fontSize="14" fill="#fde68a" fontWeight="bold">= 9 ✓</text>
+                  </g>
+                </svg>
+              </div>
+
+              <div className="p-5">
+                <h2 className="text-xl font-bold text-gray-800 mb-1 text-center">🕵️ 숨어있는 수를 찾아요!</h2>
+                <p className="text-gray-500 text-sm mb-4 text-center">넓이에서 한 변의 길이를 거꾸로 찾아요</p>
+
+                <div className="space-y-3">
+                  {([
+                    {area:9, side:3, col1:'bg-green-100 border-green-300', col2:'bg-green-500', textCol:'text-green-700'},
+                    {area:16, side:4, col1:'bg-orange-100 border-orange-300', col2:'bg-orange-500', textCol:'text-orange-700'},
+                    {area:25, side:5, col1:'bg-rose-100 border-rose-300', col2:'bg-rose-500', textCol:'text-rose-700'},
+                  ] as {area:number,side:number,col1:string,col2:string,textCol:string}[]).map(({area,side,col1,col2,textCol},i)=>(
+                    <div key={area} className={`border-2 rounded-2xl p-3 anim-slide-up ${col1}`}
+                      style={{animationDelay:`${0.2+i*0.15}s`,opacity:0}}>
+                      <div className="flex items-center gap-3">
+                        <div className="text-center">
+                          <p className="text-xs text-gray-500 mb-1">넓이 = {area}</p>
+                          <svg width={side*14+4} height={side*14+4} viewBox={`0 0 ${side*14+4} ${side*14+4}`}>
+                            {Array.from({length:area}).map((_,j)=>(
+                              <rect key={j} x={(j%side)*14+2} y={Math.floor(j/side)*14+2} width="12" height="12" rx="2"
+                                className={col2.replace('bg-','fill-')}
+                                style={{animation:'concept-fill 0.2s ease forwards',animationDelay:`${j*0.03+0.3+i*0.1}s`,opacity:0,
+                                  transformOrigin:`${(j%side)*14+8}px ${Math.floor(j/side)*14+8}px`}}/>
+                            ))}
+                          </svg>
+                        </div>
+                        <div className="text-2xl anim-bounce-x text-gray-300">→</div>
+                        <div className={`${col2} text-white rounded-xl p-3 text-center min-w-[56px]`} style={{animation:`concept-reveal 0.5s ease forwards`,animationDelay:`${0.6+i*0.15}s`,opacity:0}}>
+                          <p className="text-xs opacity-80">한 변</p>
+                          <p className="text-3xl font-black">{side}</p>
+                        </div>
+                        <div className="flex-1">
+                          <p className={`${textCol} font-bold text-sm`}>∵ {side}×{side}={area}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ══ Step 3: 수학 기호 (변환 애니메이션) ══ */}
+          {step === 3 && (
+            <div>
+              <div className="bg-gradient-to-br from-violet-500 to-purple-700 p-6 flex justify-center">
+                <svg width="280" height="130" viewBox="0 0 280 130">
+                  {/* x × x = 9 */}
+                  <g style={{animation:'concept-slide-up 0.4s ease forwards',opacity:0}}>
+                    <rect x="10" y="20" width="46" height="46" rx="10" fill="#a78bfa"/>
+                    <text x="33" y="50" textAnchor="middle" fontSize="24" fontWeight="black" fill="white">x</text>
+                  </g>
+                  <text x="68" y="48" textAnchor="middle" fontSize="18" fill="rgba(255,255,255,0.7)"
+                    style={{animation:'concept-slide-up 0.4s ease forwards',opacity:0,animationDelay:'0.15s'}}>×</text>
+                  <g style={{animation:'concept-slide-up 0.4s ease forwards',opacity:0,animationDelay:'0.25s'}}>
+                    <rect x="82" y="20" width="46" height="46" rx="10" fill="#a78bfa"/>
+                    <text x="105" y="50" textAnchor="middle" fontSize="24" fontWeight="black" fill="white">x</text>
+                  </g>
+                  <text x="144" y="48" textAnchor="middle" fontSize="18" fill="rgba(255,255,255,0.7)"
+                    style={{animation:'concept-slide-up 0.4s ease forwards',opacity:0,animationDelay:'0.35s'}}>=</text>
+                  <g style={{animation:'concept-reveal 0.5s ease forwards',opacity:0,animationDelay:'0.5s'}}>
+                    <rect x="156" y="14" width="54" height="54" rx="10" fill="#f59e0b"/>
+                    <text x="183" y="48" textAnchor="middle" fontSize="28" fontWeight="black" fill="white">9</text>
+                  </g>
+
+                  {/* 변환 화살표 */}
+                  <g style={{animation:'concept-pop 0.5s ease forwards',opacity:0,animationDelay:'0.9s'}}>
+                    <path d="M 80 80 Q 140 95 200 80" fill="none" stroke="rgba(255,255,255,0.6)" strokeWidth="2" strokeDasharray="5 3"/>
+                    <path d="M 196 74 L 204 81 L 196 88" fill="none" stroke="rgba(255,255,255,0.6)" strokeWidth="2"/>
+                    <text x="140" y="112" textAnchor="middle" fontSize="11" fill="rgba(255,255,255,0.8)">줄여서 쓰면!</text>
+                  </g>
+
+                  {/* x² = 9 */}
+                  <g style={{animation:'concept-reveal 0.6s ease forwards',opacity:0,animationDelay:'1.2s'}}>
+                    <rect x="216" y="15" width="54" height="54" rx="10" fill="#6366f1"/>
+                    <text x="236" y="47" textAnchor="middle" fontSize="22" fontWeight="black" fill="white">x</text>
+                    <text x="252" y="32" textAnchor="middle" fontSize="14" fontWeight="black" fill="#fde68a">2</text>
+                  </g>
+                </svg>
+              </div>
+
+              <div className="p-5 text-center">
+                <h2 className="text-xl font-bold text-gray-800 mb-3">✏️ 수학 기호로 써봐요!</h2>
+
+                <div className="bg-violet-50 rounded-2xl p-4 mb-4">
+                  <p className="text-violet-600 text-sm mb-3">수학에서 숨어있는 수는 <strong>x</strong>라고 써요</p>
+                  <div className="flex items-center justify-center gap-2 text-lg font-black mb-3">
+                    <span className="w-11 h-11 bg-violet-400 text-white rounded-xl flex items-center justify-center anim-pop">x</span>
+                    <span className="text-gray-300">×</span>
+                    <span className="w-11 h-11 bg-violet-400 text-white rounded-xl flex items-center justify-center anim-pop delay-100">x</span>
+                    <span className="text-gray-300">=</span>
+                    <span className="w-12 h-11 bg-amber-400 text-white rounded-xl flex items-center justify-center anim-pop delay-200">9</span>
+                  </div>
+                  <div className="flex items-center justify-center gap-2 mb-1">
+                    <div className="h-px flex-1 bg-violet-200"/>
+                    <span className="text-xs text-violet-400 font-bold">같은 말이에요!</span>
+                    <div className="h-px flex-1 bg-violet-200"/>
+                  </div>
+                  <div className="flex items-center justify-center gap-2 text-lg font-black mt-2">
+                    <div className="relative w-12 h-11 bg-indigo-500 text-white rounded-xl flex items-center justify-center anim-reveal delay-300">
+                      <span className="text-xl">x</span>
+                      <span className="absolute top-1 right-1.5 text-xs text-yellow-300 font-black">2</span>
+                    </div>
+                    <span className="text-gray-300">=</span>
+                    <span className="w-12 h-11 bg-amber-400 text-white rounded-xl flex items-center justify-center anim-pop delay-400">9</span>
+                  </div>
+                </div>
+
+                <div className="bg-yellow-50 border border-yellow-200 rounded-2xl p-3 anim-slide-up delay-500">
+                  <p className="text-yellow-700 text-sm font-bold">🌟 x² = "x의 제곱" = "x × x"</p>
+                  <p className="text-yellow-600 text-xs mt-1">x² = 9 같은 식을 <strong>이차방정식</strong>이라고 해요!</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ══ Step 4: 퀴즈 ══ */}
+          {step === 4 && (
+            <div>
+              <div className="bg-gradient-to-br from-pink-500 to-rose-600 p-5 flex justify-center">
+                <svg width="240" height="110" viewBox="0 0 240 110">
+                  {/* 도전 캐릭터 */}
+                  <g style={{animation:'concept-float 2s ease-in-out infinite'}}>
+                    <circle cx="120" cy="45" r="32" fill="rgba(255,255,255,0.2)"/>
+                    <text x="120" y="58" textAnchor="middle" fontSize="36">🧮</text>
+                  </g>
+                  {/* 별 */}
+                  {[[40,25],[195,20],[30,80],[210,75]].map(([x,y],i)=>(
+                    <text key={i} x={x} y={y} fontSize="18" fill="rgba(255,255,255,0.6)"
+                      style={{animation:`concept-float ${1.5+i*0.4}s ease-in-out infinite`,animationDelay:`${i*0.2}s`}}>⭐</text>
+                  ))}
+                  <text x="120" y="100" textAnchor="middle" fontSize="13" fill="rgba(255,255,255,0.9)" fontWeight="bold">
+                    문제 {quizIndex+1} / {quizzes.length}
+                  </text>
+                </svg>
+              </div>
+
+              <div className="p-5 text-center">
+                <h2 className="text-xl font-bold text-gray-800 mb-4">🎮 직접 풀어봐요!</h2>
+
+                <div className={`rounded-2xl p-5 mb-4 border-2 ${answered === null ? 'bg-purple-50 border-purple-200' : answered ? 'bg-green-50 border-green-300' : 'bg-red-50 border-red-300'}`}
+                  key={`quiz-${quizIndex}`}>
+                  <p className="text-4xl font-black text-gray-700 mb-4" style={{animation:'concept-pop 0.4s ease'}}>{quizzes[quizIndex].q}</p>
+
+                  {answered === null ? (
+                    <div className="flex gap-2">
+                      <input type="number" value={userAnswer}
+                        onChange={e => setUserAnswer(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter' && userAnswer) handleAnswer() }}
+                        placeholder="숫자를 입력해요"
+                        className="flex-1 border-2 border-purple-200 rounded-xl px-4 py-3 text-center text-xl font-bold focus:outline-none focus:border-purple-400 bg-white"
+                      />
+                      <button onClick={handleAnswer} disabled={!userAnswer}
+                        className="px-5 py-3 bg-purple-500 text-white rounded-xl font-bold disabled:opacity-40 hover:bg-purple-600 transition-colors">
+                        확인!
+                      </button>
+                    </div>
+                  ) : (
+                    <div style={{animation:'concept-pop 0.4s ease'}}>
+                      <div className="text-5xl mb-2">{answered ? '🎉' : '😅'}</div>
+                      <p className={`font-bold text-xl mb-1 ${answered ? 'text-green-600' : 'text-red-600'}`}>
+                        {answered ? '정답!' : `정답은 ${quizzes[quizIndex].answer}이에요`}
+                      </p>
+                      <p className="text-sm text-gray-500 mb-4">왜냐면 {quizzes[quizIndex].hint}</p>
+                      {quizIndex + 1 < quizzes.length ? (
+                        <button onClick={nextQuiz}
+                          className="w-full py-3 bg-gradient-to-r from-purple-500 to-indigo-500 text-white rounded-xl font-bold">
+                          다음 문제 →
+                        </button>
+                      ) : (
+                        <div style={{animation:'concept-reveal 0.6s ease'}}>
+                          <div className="text-4xl mb-2">🏆</div>
+                          <p className="font-bold text-yellow-600 text-lg">모두 풀었어요! 대단해요!</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* 진행 도트 */}
+                <div className="flex justify-center gap-2">
+                  {quizzes.map((_, i) => (
+                    <div key={i} className={`h-2 rounded-full transition-all ${i < quizIndex ? 'bg-green-400 w-6' : i === quizIndex ? 'bg-purple-500 w-6' : 'bg-gray-200 w-2'}`} />
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+        </div>
+
+        {/* 이전 / 다음 버튼 */}
+        <div className="flex gap-3">
+          {step > 0 && (
+            <button onClick={goPrev}
+              className="flex-1 py-3 bg-gray-100 text-gray-600 rounded-xl font-semibold hover:bg-gray-200 transition-colors">
+              ← 이전
+            </button>
+          )}
+          {step < TOTAL_STEPS - 1 && (
+            <button onClick={goNext}
+              className="flex-1 py-3 bg-gradient-to-r from-purple-500 to-indigo-500 text-white rounded-xl font-bold hover:opacity-90 transition-opacity shadow-lg">
+              다음 →
+            </button>
+          )}
+          {step === TOTAL_STEPS - 1 && (
+            <button onClick={onBack}
+              className="flex-1 py-3 bg-gray-100 text-gray-600 rounded-xl font-semibold hover:bg-gray-200 transition-colors">
+              처음으로 돌아가기
+            </button>
+          )}
+        </div>
+
+        {/* 스텝 도트 */}
+        <div className="flex justify-center gap-2 mt-4">
+          {Array.from({ length: TOTAL_STEPS }).map((_, i) => (
+            <button key={i} onClick={() => { setStep(i); setAnimKey(k => k + 1) }}
+              className={`h-2.5 rounded-full transition-all ${i === step ? 'bg-purple-500 w-6' : i < step ? 'bg-purple-300 w-2.5' : 'bg-gray-300 w-2.5'}`} />
+          ))}
+        </div>
+      </div>
     </div>
   )
 }
