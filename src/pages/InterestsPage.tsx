@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useChild } from '../contexts/ChildContext'
-import { X, Plus, Play, ExternalLink, ChevronDown, ChevronUp, Search } from 'lucide-react'
+import { X, Plus, Play, ExternalLink, ChevronDown, ChevronUp, Search, Loader2 } from 'lucide-react'
 
 type Video = { id: string; title: string }
 type ImageItem = { url: string; alt: string }
@@ -16,6 +16,15 @@ type InterestInfo = {
   activities: string[]
   funFacts: string[]
   searchQuery: string
+}
+
+type GeneratedInfo = {
+  emoji: string
+  color: string
+  description: string
+  activities: string[]
+  funFacts: string[]
+  searchQueries: string[]
 }
 
 const INTEREST_DB: Record<string, InterestInfo> = {
@@ -202,15 +211,23 @@ const INTEREST_DB: Record<string, InterestInfo> = {
 }
 
 const PRESET_INTERESTS = Object.keys(INTEREST_DB)
+const GENERATED_CACHE_KEY = 'interest_generated_cache'
 
-function YouTubeCard({ video }: { video: Video }) {
+function loadCache(): Record<string, GeneratedInfo> {
+  try { return JSON.parse(localStorage.getItem(GENERATED_CACHE_KEY) ?? '{}') } catch { return {} }
+}
+function saveCache(cache: Record<string, GeneratedInfo>) {
+  localStorage.setItem(GENERATED_CACHE_KEY, JSON.stringify(cache))
+}
+
+function YouTubeCard({ video }: { video: { id: string; title: string } }) {
   const thumb = `https://img.youtube.com/vi/${video.id}/hqdefault.jpg`
   const url = `https://www.youtube.com/watch?v=${video.id}`
   return (
     <a href={url} target="_blank" rel="noopener noreferrer"
       className="group relative block rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-all">
       <div className="relative">
-        <img src={thumb} alt={video.title} className="w-full h-32 object-cover" />
+        <img src={thumb} alt={video.title} className="w-full h-28 object-cover" />
         <div className="absolute inset-0 bg-black/30 group-hover:bg-black/10 transition-colors flex items-center justify-center">
           <div className="w-10 h-10 bg-red-600 rounded-full flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
             <Play className="w-5 h-5 text-white fill-white ml-0.5" />
@@ -224,28 +241,68 @@ function YouTubeCard({ video }: { video: Video }) {
   )
 }
 
+function YouTubeSearchCard({ query, color }: { query: string; color: string }) {
+  const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`
+  return (
+    <a href={url} target="_blank" rel="noopener noreferrer"
+      className="group flex items-center gap-3 p-3 rounded-xl border-2 transition-all hover:shadow-md"
+      style={{ borderColor: color + '40', backgroundColor: color + '08' }}>
+      <div className="w-10 h-10 bg-red-600 rounded-full flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
+        <Play className="w-5 h-5 text-white fill-white ml-0.5" />
+      </div>
+      <div className="min-w-0">
+        <p className="text-xs font-semibold text-gray-700 line-clamp-2">{query}</p>
+        <p className="text-[10px] text-gray-400 mt-0.5">유튜브에서 검색</p>
+      </div>
+      <ExternalLink className="w-3.5 h-3.5 flex-shrink-0 text-gray-300 group-hover:text-gray-500" />
+    </a>
+  )
+}
+
 export default function InterestsPage() {
   const { selectedChild, refreshChildren } = useChild()
   const [saving, setSaving] = useState(false)
   const [customInput, setCustomInput] = useState('')
   const [activeTab, setActiveTab] = useState<'videos' | 'images' | 'facts'>('videos')
   const [expandedInterest, setExpandedInterest] = useState<string | null>(null)
+  const [generatedCache, setGeneratedCache] = useState<Record<string, GeneratedInfo>>(loadCache)
+  const [generating, setGenerating] = useState<Set<string>>(new Set())
 
   const interests: string[] = selectedChild?.interests ?? []
 
+  useEffect(() => { saveCache(generatedCache) }, [generatedCache])
+
   const saveInterests = async (newInterests: string[]) => {
     if (!selectedChild) return false
-    const { error } = await supabase
-      .from('children')
-      .update({ interests: newInterests })
-      .eq('id', selectedChild.id)
-    if (error) {
-      console.error('관심사 저장 실패:', error)
-      alert('저장에 실패했습니다: ' + error.message)
-      return false
-    }
+    const { error } = await supabase.from('children').update({ interests: newInterests }).eq('id', selectedChild.id)
+    if (error) { alert('저장에 실패했습니다: ' + error.message); return false }
     await refreshChildren()
     return true
+  }
+
+  const generateContent = async (topic: string) => {
+    if (generatedCache[topic] || generating.has(topic)) return
+    setGenerating(prev => new Set(prev).add(topic))
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+      const res = await fetch(`${supabaseUrl}/functions/v1/generate-interest`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({ topic }),
+      })
+      if (res.ok) {
+        const data: GeneratedInfo = await res.json()
+        setGeneratedCache(prev => ({ ...prev, [topic]: data }))
+      }
+    } catch (e) {
+      console.error('AI 생성 실패:', e)
+    } finally {
+      setGenerating(prev => { const s = new Set(prev); s.delete(topic); return s })
+    }
   }
 
   const toggleInterest = async (tag: string) => {
@@ -256,7 +313,10 @@ export default function InterestsPage() {
       : [...interests, tag]
     const ok = await saveInterests(newInterests)
     setSaving(false)
-    if (ok && !interests.includes(tag)) setExpandedInterest(tag)
+    if (ok && !interests.includes(tag)) {
+      setExpandedInterest(tag)
+      if (!INTEREST_DB[tag]) generateContent(tag)
+    }
   }
 
   const addCustom = async () => {
@@ -264,7 +324,11 @@ export default function InterestsPage() {
     if (!tag || !selectedChild || interests.includes(tag)) return
     setSaving(true)
     const ok = await saveInterests([...interests, tag])
-    if (ok) setCustomInput('')
+    if (ok) {
+      setCustomInput('')
+      setExpandedInterest(tag)
+      if (!INTEREST_DB[tag]) generateContent(tag)
+    }
     setSaving(false)
   }
 
@@ -278,25 +342,26 @@ export default function InterestsPage() {
 
   if (!selectedChild) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-400">
-        <p>왼쪽에서 아이를 선택해 주세요.</p>
+      <div className="flex items-center justify-center h-full text-gray-400 p-8">
+        <p className="text-center">아이를 선택해 주세요.</p>
       </div>
     )
   }
 
-  const activeInfoInterests = interests.filter((i) => INTEREST_DB[i])
+  const presetActive = interests.filter((i) => INTEREST_DB[i])
   const customInterests = interests.filter((i) => !INTEREST_DB[i])
+  const allActive = [...presetActive, ...customInterests]
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
+    <div className="p-4 md:p-6 max-w-5xl mx-auto">
       {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-800">⭐ {selectedChild.name}의 관심사</h1>
-        <p className="text-gray-500 text-sm mt-1">관심사를 선택하면 유튜브 영상과 이미지를 추천해드려요!</p>
+      <div className="mb-5">
+        <h1 className="text-xl md:text-2xl font-bold text-gray-800">⭐ {selectedChild.name}의 관심사</h1>
+        <p className="text-gray-500 text-sm mt-1">관심사를 선택하거나 직접 입력하면 AI가 관련 콘텐츠를 추천해드려요!</p>
       </div>
 
       {/* 관심사 선택 */}
-      <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm mb-6">
+      <div className="bg-white rounded-2xl p-4 md:p-5 border border-gray-100 shadow-sm mb-5">
         <h2 className="font-semibold text-gray-700 mb-3 text-sm">관심사 선택하기</h2>
         <div className="flex flex-wrap gap-2">
           {PRESET_INTERESTS.map((tag) => {
@@ -305,12 +370,9 @@ export default function InterestsPage() {
             return (
               <button key={tag} onClick={() => toggleInterest(tag)} disabled={saving}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all border ${
-                  active
-                    ? 'text-white border-transparent shadow-sm'
-                    : 'bg-gray-50 text-gray-600 border-gray-200 hover:border-gray-300'
+                  active ? 'text-white border-transparent shadow-sm' : 'bg-gray-50 text-gray-600 border-gray-200 hover:border-gray-300'
                 }`}
-                style={active ? { backgroundColor: info.color, borderColor: info.color } : {}}
-              >
+                style={active ? { backgroundColor: info.color, borderColor: info.color } : {}}>
                 <span>{info.emoji}</span>
                 <span>{tag}</span>
                 {active && <X className="w-3 h-3 opacity-80" />}
@@ -324,18 +386,20 @@ export default function InterestsPage() {
           <input type="text" value={customInput}
             onChange={(e) => setCustomInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && addCustom()}
-            placeholder="직접 입력 (예: 마인크래프트, 발레...)"
-            className="flex-1 px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+            placeholder="직접 입력 (예: 마인크래프트, 발레, 수영...)"
+            className="flex-1 px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
           <button onClick={addCustom} disabled={!customInput.trim() || saving}
-            className="px-4 py-2 bg-blue-500 text-white rounded-xl text-sm font-medium hover:bg-blue-600 disabled:opacity-40 flex items-center gap-1">
+            className="px-4 py-2.5 bg-blue-500 text-white rounded-xl text-sm font-medium hover:bg-blue-600 disabled:opacity-40 flex items-center gap-1 flex-shrink-0">
             <Plus className="w-4 h-4" /> 추가
           </button>
         </div>
+        <p className="text-xs text-gray-400 mt-2">💡 직접 입력한 주제는 AI가 자동으로 관련 콘텐츠를 생성해드려요</p>
 
         {customInterests.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-2">
             {customInterests.map((tag) => (
               <span key={tag} className="flex items-center gap-1 px-3 py-1.5 bg-purple-100 text-purple-700 rounded-full text-sm font-medium">
+                {generatedCache[tag]?.emoji ?? (generating.has(tag) ? '⏳' : '✨')}
                 {tag}
                 <button onClick={() => removeInterest(tag)} className="hover:text-purple-900 ml-0.5">
                   <X className="w-3 h-3" />
@@ -347,123 +411,190 @@ export default function InterestsPage() {
       </div>
 
       {/* 관심사 콘텐츠 */}
-      {activeInfoInterests.length === 0 ? (
-        <div className="text-center py-20 text-gray-300">
-          <p className="text-6xl mb-4">🌟</p>
+      {allActive.length === 0 ? (
+        <div className="text-center py-16 text-gray-300">
+          <p className="text-5xl mb-4">🌟</p>
           <p className="text-lg font-medium text-gray-400">위에서 관심사를 선택해보세요!</p>
           <p className="text-sm text-gray-300 mt-1">유튜브 영상과 사진을 추천해드려요</p>
         </div>
       ) : (
-        <div className="space-y-4">
-          {activeInfoInterests.map((tag) => {
+        <div className="space-y-3">
+          {allActive.map((tag) => {
             const info = INTEREST_DB[tag]
+            const generated = generatedCache[tag]
+            const isGenerating = generating.has(tag)
             const isExpanded = expandedInterest === tag
+            const color = info?.color ?? generated?.color ?? '#6366f1'
+            const emoji = info?.emoji ?? generated?.emoji ?? '✨'
+            const description = info?.description ?? generated?.description ?? ''
 
             return (
               <div key={tag} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
                 {/* 헤더 */}
                 <button className="w-full flex items-center justify-between p-4 text-left hover:bg-gray-50 transition-colors"
-                  onClick={() => setExpandedInterest(isExpanded ? null : tag)}>
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-2xl flex items-center justify-center text-2xl"
-                      style={{ backgroundColor: info.color + '20' }}>
-                      {info.emoji}
+                  onClick={() => {
+                    setExpandedInterest(isExpanded ? null : tag)
+                    if (!info && !generated && !isGenerating) generateContent(tag)
+                  }}>
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-11 h-11 rounded-2xl flex items-center justify-center text-xl flex-shrink-0"
+                      style={{ backgroundColor: color + '20' }}>
+                      {isGenerating ? <Loader2 className="w-5 h-5 animate-spin" style={{ color }} /> : emoji}
                     </div>
-                    <div>
-                      <h3 className="font-bold text-gray-800 text-base">{info.label}</h3>
-                      <p className="text-xs text-gray-400 mt-0.5">{info.description.slice(0, 40)}...</p>
+                    <div className="min-w-0">
+                      <h3 className="font-bold text-gray-800 text-sm md:text-base flex items-center gap-2">
+                        {tag}
+                        {!info && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
+                            style={{ backgroundColor: color + '20', color }}>
+                            {isGenerating ? 'AI 생성 중...' : 'AI'}
+                          </span>
+                        )}
+                      </h3>
+                      {description && (
+                        <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">{description.slice(0, 45)}...</p>
+                      )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-gray-400 hidden sm:block">
-                      📹 {info.videos.length}개 영상
-                    </span>
+                  <div className="flex items-center gap-2 flex-shrink-0 ml-2">
                     {isExpanded
-                      ? <ChevronUp className="w-5 h-5 text-gray-400 flex-shrink-0" />
-                      : <ChevronDown className="w-5 h-5 text-gray-400 flex-shrink-0" />}
+                      ? <ChevronUp className="w-5 h-5 text-gray-400" />
+                      : <ChevronDown className="w-5 h-5 text-gray-400" />}
                   </div>
                 </button>
 
                 {isExpanded && (
                   <div className="border-t border-gray-100">
-                    {/* 탭 */}
-                    <div className="flex border-b border-gray-100 px-4">
-                      {([['videos', '📹 유튜브 영상'], ['images', '🖼️ 사진'], ['facts', '💡 재미있는 사실']] as const).map(([tab, label]) => (
-                        <button key={tab} onClick={() => setActiveTab(tab)}
-                          className={`px-4 py-3 text-xs font-medium transition-colors border-b-2 -mb-px ${
-                            activeTab === tab
-                              ? 'border-current font-semibold'
-                              : 'border-transparent text-gray-400 hover:text-gray-600'
-                          }`}
-                          style={activeTab === tab ? { color: info.color, borderColor: info.color } : {}}>
-                          {label}
-                        </button>
-                      ))}
-                    </div>
+                    {/* 로딩 중 */}
+                    {isGenerating && !generated && (
+                      <div className="flex flex-col items-center justify-center py-12 gap-3">
+                        <Loader2 className="w-8 h-8 animate-spin" style={{ color }} />
+                        <p className="text-sm text-gray-400">AI가 "{tag}" 관련 콘텐츠를 생성 중이에요...</p>
+                      </div>
+                    )}
 
-                    <div className="p-4">
-                      {/* 유튜브 영상 탭 */}
-                      {activeTab === 'videos' && (
-                        <div>
-                          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                            {info.videos.map((v) => <YouTubeCard key={v.id} video={v} />)}
-                          </div>
-                          <a href={`https://www.youtube.com/results?search_query=${encodeURIComponent(info.searchQuery)}`}
-                            target="_blank" rel="noopener noreferrer"
-                            className="mt-3 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition-colors border-2"
-                            style={{ color: info.color, borderColor: info.color + '40', backgroundColor: info.color + '08' }}>
-                            <Search className="w-4 h-4" />
-                            유튜브에서 "{info.searchQuery}" 더 보기
-                            <ExternalLink className="w-3 h-3" />
-                          </a>
-                        </div>
-                      )}
-
-                      {/* 이미지 탭 */}
-                      {activeTab === 'images' && (
-                        <div>
-                          <div className="grid grid-cols-3 gap-3">
-                            {info.images.map((img) => (
-                              <div key={img.url} className="rounded-xl overflow-hidden shadow-sm">
-                                <img src={img.url} alt={img.alt}
-                                  className="w-full h-36 object-cover hover:scale-105 transition-transform" />
-                                <p className="text-xs text-center text-gray-500 py-1.5 bg-gray-50">{img.alt}</p>
-                              </div>
-                            ))}
-                          </div>
-                          <div className="mt-4 grid grid-cols-2 gap-2">
-                            {info.activities.map((a) => (
-                              <div key={a} className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs"
-                                style={{ backgroundColor: info.color + '10', color: info.color }}>
-                                <span className="font-bold">✓</span> {a}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* 재미있는 사실 탭 */}
-                      {activeTab === 'facts' && (
-                        <div className="space-y-3">
-                          {info.funFacts.map((fact, i) => (
-                            <div key={i} className="flex items-start gap-3 p-4 rounded-xl"
-                              style={{ backgroundColor: info.color + '10' }}>
-                              <span className="text-2xl flex-shrink-0">
-                                {['🌟', '🎯', '🔥', '💎'][i % 4]}
-                              </span>
-                              <p className="text-sm font-medium" style={{ color: info.color }}>{fact}</p>
-                            </div>
+                    {/* 프리셋 콘텐츠 */}
+                    {info && (
+                      <>
+                        <div className="flex border-b border-gray-100 px-4 overflow-x-auto">
+                          {([['videos', '📹 영상'], ['images', '🖼️ 사진'], ['facts', '💡 사실']] as const).map(([t, label]) => (
+                            <button key={t} onClick={() => setActiveTab(t)}
+                              className={`px-3 md:px-4 py-3 text-xs font-medium transition-colors border-b-2 -mb-px flex-shrink-0 ${
+                                activeTab === t ? 'border-current font-semibold' : 'border-transparent text-gray-400 hover:text-gray-600'
+                              }`}
+                              style={activeTab === t ? { color, borderColor: color } : {}}>
+                              {label}
+                            </button>
                           ))}
-                          <a href={`https://www.youtube.com/results?search_query=${encodeURIComponent(info.searchQuery + ' 놀라운 사실')}`}
-                            target="_blank" rel="noopener noreferrer"
-                            className="flex items-center justify-center gap-2 py-2.5 mt-2 rounded-xl text-xs font-medium border"
-                            style={{ color: info.color, borderColor: info.color + '40' }}>
-                            <ExternalLink className="w-3 h-3" />
-                            {info.label}에 대해 더 알아보기
-                          </a>
                         </div>
-                      )}
-                    </div>
+                        <div className="p-4">
+                          {activeTab === 'videos' && (
+                            <div>
+                              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                {info.videos.map((v) => <YouTubeCard key={v.id} video={v} />)}
+                              </div>
+                              <a href={`https://www.youtube.com/results?search_query=${encodeURIComponent(info.searchQuery)}`}
+                                target="_blank" rel="noopener noreferrer"
+                                className="mt-3 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition-colors border-2"
+                                style={{ color, borderColor: color + '40', backgroundColor: color + '08' }}>
+                                <Search className="w-4 h-4" />
+                                "{info.searchQuery}" 유튜브에서 더 보기
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
+                            </div>
+                          )}
+                          {activeTab === 'images' && (
+                            <div>
+                              <div className="grid grid-cols-3 gap-3">
+                                {info.images.map((img) => (
+                                  <div key={img.url} className="rounded-xl overflow-hidden shadow-sm">
+                                    <img src={img.url} alt={img.alt} className="w-full h-24 md:h-36 object-cover" />
+                                    <p className="text-xs text-center text-gray-500 py-1.5 bg-gray-50">{img.alt}</p>
+                                  </div>
+                                ))}
+                              </div>
+                              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-2">
+                                {info.activities.map((a) => (
+                                  <div key={a} className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs"
+                                    style={{ backgroundColor: color + '10', color }}>
+                                    <span className="font-bold">✓</span> {a}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {activeTab === 'facts' && (
+                            <div className="space-y-3">
+                              {info.funFacts.map((fact, i) => (
+                                <div key={i} className="flex items-start gap-3 p-4 rounded-xl"
+                                  style={{ backgroundColor: color + '10' }}>
+                                  <span className="text-xl flex-shrink-0">{['🌟', '🎯', '🔥', '💎'][i % 4]}</span>
+                                  <p className="text-sm font-medium" style={{ color }}>{fact}</p>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    )}
+
+                    {/* AI 생성 콘텐츠 */}
+                    {!info && generated && (
+                      <div className="p-4 space-y-4">
+                        {/* 설명 */}
+                        <div className="p-4 rounded-xl" style={{ backgroundColor: color + '10' }}>
+                          <p className="text-sm text-gray-700 leading-relaxed">{generated.description}</p>
+                        </div>
+
+                        {/* 유튜브 검색 */}
+                        <div>
+                          <p className="text-xs font-semibold text-gray-500 mb-2">📹 유튜브 영상 검색</p>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                            {generated.searchQueries.map((q) => (
+                              <YouTubeSearchCard key={q} query={q} color={color} />
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* 활동 */}
+                        <div>
+                          <p className="text-xs font-semibold text-gray-500 mb-2">🎯 추천 활동</p>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                            {generated.activities.map((a) => (
+                              <div key={a} className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm"
+                                style={{ backgroundColor: color + '10', color }}>
+                                <span className="font-bold text-base">✓</span> {a}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* 재미있는 사실 */}
+                        <div>
+                          <p className="text-xs font-semibold text-gray-500 mb-2">💡 재미있는 사실</p>
+                          <div className="space-y-2">
+                            {generated.funFacts.map((fact, i) => (
+                              <div key={i} className="flex items-start gap-3 p-3 rounded-xl"
+                                style={{ backgroundColor: color + '10' }}>
+                                <span className="text-lg flex-shrink-0">{['🌟', '🎯', '🔥'][i % 3]}</span>
+                                <p className="text-sm font-medium" style={{ color }}>{fact}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* AI 생성 실패 or 아직 시작 안 함 */}
+                    {!info && !generated && !isGenerating && (
+                      <div className="p-6 text-center">
+                        <p className="text-gray-400 text-sm mb-3">콘텐츠를 불러오지 못했어요</p>
+                        <button onClick={() => generateContent(tag)}
+                          className="px-4 py-2 bg-purple-500 text-white rounded-xl text-sm font-medium hover:bg-purple-600">
+                          다시 생성하기
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

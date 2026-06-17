@@ -33,9 +33,18 @@ export type Child = {
   created_at: string
 }
 
+export type TimetableVersion = {
+  id: string
+  child_id: string
+  title: string
+  is_active: boolean
+  created_at: string
+}
+
 export type TimetableSlot = {
   id: string
   child_id: string
+  version_id: string | null
   day_of_week: number
   start_time: string   // "HH:MM"
   end_time: string     // "HH:MM"
