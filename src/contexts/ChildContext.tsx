@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { supabase } from '../lib/supabase'
 import type { Child } from '../lib/supabase'
@@ -23,6 +23,10 @@ export function ChildProvider({ children: reactChildren }: { children: ReactNode
   const [children, setChildren] = useState<Child[]>([])
   const [selectedChild, setSelectedChild] = useState<Child | null>(null)
 
+  // ref로 항상 최신 selectedChild를 참조 (stale closure 방지)
+  const selectedChildRef = useRef<Child | null>(null)
+  selectedChildRef.current = selectedChild
+
   const fetchChildren = async () => {
     if (!myFamily) return
     const { data } = await supabase
@@ -32,7 +36,13 @@ export function ChildProvider({ children: reactChildren }: { children: ReactNode
       .order('created_at')
     if (data) {
       setChildren(data)
-      if (data.length > 0 && !selectedChild) setSelectedChild(data[0])
+      const current = selectedChildRef.current
+      if (data.length > 0 && !current) {
+        setSelectedChild(data[0])
+      } else if (current) {
+        const updated = data.find((c) => c.id === current.id)
+        if (updated) setSelectedChild(updated)
+      }
     }
   }
 
