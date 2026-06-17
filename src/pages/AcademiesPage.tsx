@@ -79,6 +79,7 @@ export default function AcademiesPage() {
   const [form, setForm] = useState<FormState>(EMPTY_FORM())
   const [saving, setSaving] = useState(false)
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [originalName, setOriginalName] = useState<string | null>(null)
   const [syncTimetable, setSyncTimetable] = useState(true)
   const [viewMonth, setViewMonth] = useState(currentYearMonth())
   const [dismissedAlert, setDismissedAlert] = useState(false)
@@ -100,9 +101,10 @@ export default function AcademiesPage() {
     fetchPayments()
   }, [selectedChild])
 
-  const openNew = () => { setEditId(null); setForm(EMPTY_FORM()); setShowForm(true) }
+  const openNew = () => { setEditId(null); setOriginalName(null); setForm(EMPTY_FORM()); setShowForm(true) }
   const openEdit = (ac: Academy) => {
     setEditId(ac.id)
+    setOriginalName(ac.name)
     // 기존 데이터가 day_of_week 단일값이면 days 배열로 변환
     const schedule: ScheduleItem[] = (ac.schedule ?? []).map((s: any) => ({
       days: Array.isArray(s.days) ? s.days : [s.day_of_week ?? 0],
@@ -163,11 +165,12 @@ export default function AcademiesPage() {
         .maybeSingle()
       const versionId = activeVersion?.id ?? null
 
-      // 기존 슬롯 삭제 (같은 버전의 같은 과목명만)
+      // 기존 슬롯 삭제 (이름 변경 시 원래 이름 기준으로 삭제)
+      const nameToDelete = originalName ?? form.name.trim()
       let deleteQuery = supabase.from('timetable_slots')
         .delete()
         .eq('child_id', selectedChild.id)
-        .eq('subject', form.name.trim())
+        .eq('subject', nameToDelete)
       if (versionId) deleteQuery = deleteQuery.eq('version_id', versionId)
       else deleteQuery = deleteQuery.is('version_id', null)
       await deleteQuery

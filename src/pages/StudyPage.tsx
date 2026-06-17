@@ -112,6 +112,33 @@ function addPoints(childId: string, pts: number): number {
   localStorage.setItem(`study_points_${childId}`, String(next))
   return next
 }
+function spendPoints(childId: string, pts: number): number {
+  const current = getPoints(childId)
+  const next = Math.max(0, current - pts)
+  localStorage.setItem(`study_points_${childId}`, String(next))
+  return next
+}
+
+// ── 보상 ─────────────────────────────────────────────────────
+type Reward = { id: string; name: string; emoji: string; points: number }
+type RewardRequest = {
+  id: string; childId: string; rewardId: string; rewardName: string
+  rewardEmoji: string; points: number; status: 'pending' | 'approved' | 'rejected'
+  requestedAt: string; resolvedAt?: string
+}
+
+function getRewards(familyId: string): Reward[] {
+  try { return JSON.parse(localStorage.getItem(`rewards_${familyId}`) ?? '[]') } catch { return [] }
+}
+function saveRewards(familyId: string, rewards: Reward[]) {
+  localStorage.setItem(`rewards_${familyId}`, JSON.stringify(rewards))
+}
+function getRequests(childId: string): RewardRequest[] {
+  try { return JSON.parse(localStorage.getItem(`reward_requests_${childId}`) ?? '[]') } catch { return [] }
+}
+function saveRequests(childId: string, requests: RewardRequest[]) {
+  localStorage.setItem(`reward_requests_${childId}`, JSON.stringify(requests))
+}
 
 // ── 문제 생성 ─────────────────────────────────────────────────
 function buildQuestions(
@@ -551,8 +578,9 @@ const socialBank: Record<number, Question[]> = {
 // ── 메인 컴포넌트 ─────────────────────────────────────────────
 export default function StudyPage() {
   const { selectedChild } = useChild()
-  const { myMember } = useAuth()
+  const { myMember, myFamily } = useAuth()
   const isChild = myMember?.role === 'child'
+  const familyId = myFamily?.id ?? 'default'
 
   const grade = parseGrade(selectedChild?.grade)
   const childId = selectedChild?.id ?? 'default'
@@ -568,11 +596,71 @@ export default function StudyPage() {
   const [points, setPoints] = useState(getPoints(childId))
   const [wrongOnlyMode, setWrongOnlyMode] = useState(false)
   const [history, setHistory] = useState<QuizSession[]>([])
+  const [showRewardShop, setShowRewardShop] = useState(false)
+  const [showRewardMgmt, setShowRewardMgmt] = useState(false)
+  const [rewards, setRewards] = useState<Reward[]>([])
+  const [requests, setRequests] = useState<RewardRequest[]>([])
+  const [newRewardName, setNewRewardName] = useState('')
+  const [newRewardEmoji, setNewRewardEmoji] = useState('🎁')
+  const [newRewardPoints, setNewRewardPoints] = useState('')
 
   useEffect(() => {
     setPoints(getPoints(childId))
     setHistory(getHistory(childId))
+    setRequests(getRequests(childId))
   }, [childId])
+
+  useEffect(() => {
+    setRewards(getRewards(familyId))
+  }, [familyId])
+
+  const requestReward = (reward: Reward) => {
+    const newReq: RewardRequest = {
+      id: `${Date.now()}`, childId, rewardId: reward.id,
+      rewardName: reward.name, rewardEmoji: reward.emoji, points: reward.points,
+      status: 'pending', requestedAt: new Date().toISOString(),
+    }
+    const updated = [...requests, newReq]
+    saveRequests(childId, updated)
+    setRequests(updated)
+  }
+
+  const approveRequest = (reqId: string) => {
+    const req = requests.find(r => r.id === reqId)
+    if (!req) return
+    const updated = requests.map(r => r.id === reqId
+      ? { ...r, status: 'approved' as const, resolvedAt: new Date().toISOString() } : r)
+    saveRequests(childId, updated)
+    setRequests(updated)
+    const next = spendPoints(childId, req.points)
+    setPoints(next)
+  }
+
+  const rejectRequest = (reqId: string) => {
+    const updated = requests.map(r => r.id === reqId
+      ? { ...r, status: 'rejected' as const, resolvedAt: new Date().toISOString() } : r)
+    saveRequests(childId, updated)
+    setRequests(updated)
+  }
+
+  const addReward = () => {
+    if (!newRewardName.trim() || !newRewardPoints) return
+    const reward: Reward = {
+      id: `${Date.now()}`, name: newRewardName.trim(),
+      emoji: newRewardEmoji, points: Number(newRewardPoints),
+    }
+    const updated = [...rewards, reward]
+    saveRewards(familyId, updated)
+    setRewards(updated)
+    setNewRewardName('')
+    setNewRewardPoints('')
+  }
+
+  const deleteReward = (id: string) => {
+    const updated = rewards.filter(r => r.id !== id)
+    saveRewards(familyId, updated)
+    setRewards(updated)
+  }
 
   const startSubject = useCallback((s: Subject, wrongOnly = false) => {
     const seed = Date.now()
@@ -930,24 +1018,51 @@ export default function StudyPage() {
           })}
         </div>
 
-        {/* 포인트 안내 */}
+        {/* 포인트 안내 + 보상 교환소 */}
         {isChild && (
           <div className="bg-gradient-to-r from-yellow-50 to-orange-50 border border-yellow-200 rounded-2xl p-4 mb-4">
-            <div className="flex items-center gap-2 mb-2">
-              <Star className="w-5 h-5 text-yellow-500 fill-yellow-400" />
-              <p className="font-bold text-yellow-800">포인트 안내</p>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <Star className="w-5 h-5 text-yellow-500 fill-yellow-400" />
+                <p className="font-bold text-yellow-800">포인트 안내</p>
+              </div>
+              {rewards.length > 0 && (
+                <button onClick={() => setShowRewardShop(true)}
+                  className="flex items-center gap-1.5 bg-yellow-400 hover:bg-yellow-500 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-colors">
+                  🎁 보상 교환소
+                  {requests.filter(r => r.status === 'pending').length > 0 && (
+                    <span className="bg-white text-yellow-600 rounded-full w-4 h-4 flex items-center justify-center text-[10px] font-bold">
+                      {requests.filter(r => r.status === 'pending').length}
+                    </span>
+                  )}
+                </button>
+              )}
             </div>
             <p className="text-sm text-yellow-700">문제를 맞힐 때마다 <strong>10포인트</strong>가 쌓여요!</p>
             <p className="text-sm text-yellow-700 mt-0.5">10문제 다 맞히면 <strong>100포인트</strong>!</p>
+            {rewards.length === 0 && (
+              <p className="text-xs text-yellow-500 mt-1">부모님께 보상을 등록해달라고 해보세요 😊</p>
+            )}
           </div>
         )}
 
         {/* 부모 뷰 */}
         {!isChild && selectedChild && (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <Trophy className="w-5 h-5 text-indigo-500" />
-              <p className="font-bold text-gray-700">{selectedChild.name}의 학습 현황</p>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Trophy className="w-5 h-5 text-indigo-500" />
+                <p className="font-bold text-gray-700">{selectedChild.name}의 학습 현황</p>
+              </div>
+              <button onClick={() => setShowRewardMgmt(true)}
+                className="flex items-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 px-3 py-1.5 rounded-xl text-xs font-bold transition-colors">
+                🎁 보상 관리
+                {requests.filter(r => r.status === 'pending').length > 0 && (
+                  <span className="bg-indigo-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px] font-bold">
+                    {requests.filter(r => r.status === 'pending').length}
+                  </span>
+                )}
+              </button>
             </div>
             <div className="flex items-center justify-between mb-3">
               <p className="text-gray-500 text-sm">누적 포인트</p>
@@ -977,6 +1092,158 @@ export default function StudyPage() {
           </div>
         )}
       </div>
+
+      {/* 보상 교환소 모달 (아이용) */}
+      {showRewardShop && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 max-h-[85vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="font-bold text-gray-800 text-lg">🎁 보상 교환소</h2>
+                <p className="text-xs text-gray-400 mt-0.5">현재 포인트: <strong className="text-yellow-600">{points}P</strong></p>
+              </div>
+              <button onClick={() => setShowRewardShop(false)} className="text-gray-400 hover:text-gray-600">✕</button>
+            </div>
+
+            {rewards.length === 0 ? (
+              <p className="text-center text-gray-400 text-sm py-6">부모님께 보상을 등록해달라고 해보세요!</p>
+            ) : (
+              <div className="space-y-2 mb-5">
+                {rewards.map(reward => {
+                  const alreadyPending = requests.some(r => r.rewardId === reward.id && r.status === 'pending')
+                  const canAfford = points >= reward.points
+                  return (
+                    <div key={reward.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
+                      <span className="text-2xl">{reward.emoji}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-gray-800 text-sm">{reward.name}</p>
+                        <p className="text-xs text-yellow-600 font-bold">{reward.points}P 필요</p>
+                      </div>
+                      <button
+                        disabled={alreadyPending || !canAfford}
+                        onClick={() => requestReward(reward)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors ${
+                          alreadyPending ? 'bg-gray-200 text-gray-400' :
+                          !canAfford ? 'bg-gray-100 text-gray-300' :
+                          'bg-yellow-400 hover:bg-yellow-500 text-white'
+                        }`}>
+                        {alreadyPending ? '요청중' : !canAfford ? '포인트 부족' : '요청'}
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {requests.length > 0 && (
+              <>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">내 요청 내역</p>
+                <div className="space-y-2">
+                  {[...requests].reverse().slice(0, 10).map(req => (
+                    <div key={req.id} className="flex items-center gap-2 p-2.5 bg-gray-50 rounded-xl">
+                      <span className="text-lg">{req.rewardEmoji}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-gray-700 truncate">{req.rewardName}</p>
+                        <p className="text-[10px] text-gray-400">{req.points}P · {new Date(req.requestedAt).toLocaleDateString('ko-KR')}</p>
+                      </div>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        req.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
+                        req.status === 'approved' ? 'bg-green-100 text-green-700' :
+                        'bg-red-100 text-red-600'
+                      }`}>
+                        {req.status === 'pending' ? '대기중' : req.status === 'approved' ? '승인됨' : '거절됨'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 보상 관리 모달 (부모용) */}
+      {showRewardMgmt && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 max-h-[85vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-bold text-gray-800 text-lg">🎁 보상 관리</h2>
+              <button onClick={() => setShowRewardMgmt(false)} className="text-gray-400 hover:text-gray-600">✕</button>
+            </div>
+
+            {/* 대기 중인 요청 */}
+            {requests.filter(r => r.status === 'pending').length > 0 && (
+              <div className="mb-4">
+                <p className="text-xs font-semibold text-orange-600 uppercase tracking-wide mb-2">승인 대기 요청</p>
+                <div className="space-y-2">
+                  {requests.filter(r => r.status === 'pending').map(req => (
+                    <div key={req.id} className="flex items-center gap-2 p-3 bg-orange-50 border border-orange-100 rounded-xl">
+                      <span className="text-xl">{req.rewardEmoji}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-800 truncate">{req.rewardName}</p>
+                        <p className="text-[10px] text-gray-400">{req.points}P · {new Date(req.requestedAt).toLocaleDateString('ko-KR')}</p>
+                      </div>
+                      <div className="flex gap-1">
+                        <button onClick={() => approveRequest(req.id)}
+                          className="px-2.5 py-1.5 bg-green-500 hover:bg-green-600 text-white rounded-lg text-xs font-bold transition-colors">
+                          승인
+                        </button>
+                        <button onClick={() => rejectRequest(req.id)}
+                          className="px-2.5 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-600 rounded-lg text-xs font-bold transition-colors">
+                          거절
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 보상 목록 */}
+            <div className="mb-4">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">등록된 보상</p>
+              {rewards.length === 0 ? (
+                <p className="text-xs text-gray-400 text-center py-3 bg-gray-50 rounded-xl">보상을 추가해주세요</p>
+              ) : (
+                <div className="space-y-2">
+                  {rewards.map(reward => (
+                    <div key={reward.id} className="flex items-center gap-2 p-2.5 bg-gray-50 rounded-xl">
+                      <span className="text-xl">{reward.emoji}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-700 truncate">{reward.name}</p>
+                        <p className="text-xs text-yellow-600 font-bold">{reward.points}P</p>
+                      </div>
+                      <button onClick={() => deleteReward(reward.id)}
+                        className="text-gray-300 hover:text-red-400 text-lg leading-none transition-colors">✕</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* 보상 추가 */}
+            <div className="border-t border-gray-100 pt-4">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">보상 추가</p>
+              <div className="flex gap-2 mb-2">
+                <input value={newRewardEmoji} onChange={e => setNewRewardEmoji(e.target.value)}
+                  className="w-12 border border-gray-200 rounded-xl text-center text-lg px-1 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                <input value={newRewardName} onChange={e => setNewRewardName(e.target.value)}
+                  placeholder="보상 이름 (예: 게임 30분)"
+                  className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+              </div>
+              <div className="flex gap-2">
+                <input type="number" value={newRewardPoints} onChange={e => setNewRewardPoints(e.target.value)}
+                  placeholder="필요 포인트"
+                  className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                <button onClick={addReward} disabled={!newRewardName.trim() || !newRewardPoints}
+                  className="px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl text-sm font-bold disabled:opacity-40 transition-colors">
+                  추가
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
