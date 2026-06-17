@@ -12,6 +12,7 @@ import ChatPage from './pages/ChatPage'
 import AcademiesPage from './pages/AcademiesPage'
 import GamesPage from './pages/GamesPage'
 import InterestsPage from './pages/InterestsPage'
+import StudyPage from './pages/StudyPage'
 
 function AppRoutes() {
   const { user, myFamily, loading } = useAuth()
@@ -44,6 +45,7 @@ function AppRoutes() {
           <Route path="chat" element={<ChatPage />} />
           <Route path="games" element={<GamesPage />} />
           <Route path="interests" element={<InterestsPage />} />
+          <Route path="study" element={<StudyPage />} />
         </Route>
       </Routes>
     </ChildProvider>
