@@ -12,7 +12,7 @@ const COLORS = [
   '#06b6d4', '#ec4899', '#f97316', '#84cc16', '#6366f1',
 ]
 
-type ScheduleItem = { day_of_week: number; start_time: string; end_time: string }
+type ScheduleItem = { days: number[]; start_time: string; end_time: string }
 
 type FormState = {
   name: string
@@ -103,18 +103,31 @@ export default function AcademiesPage() {
   const openNew = () => { setEditId(null); setForm(EMPTY_FORM()); setShowForm(true) }
   const openEdit = (ac: Academy) => {
     setEditId(ac.id)
+    // 기존 데이터가 day_of_week 단일값이면 days 배열로 변환
+    const schedule: ScheduleItem[] = (ac.schedule ?? []).map((s: any) => ({
+      days: Array.isArray(s.days) ? s.days : [s.day_of_week ?? 0],
+      start_time: s.start_time,
+      end_time: s.end_time,
+    }))
     setForm({
       name: ac.name, type: ac.type, phone: ac.phone ?? '', address: ac.address ?? '',
       teacher: ac.teacher ?? '', monthly_fee: ac.monthly_fee != null ? String(ac.monthly_fee) : '',
       payment_day: ac.payment_day != null ? String(ac.payment_day) : '25',
-      color: ac.color, is_active: ac.is_active, memo: ac.memo ?? '', schedule: ac.schedule ?? [],
+      color: ac.color, is_active: ac.is_active, memo: ac.memo ?? '', schedule,
     })
     setShowForm(true)
   }
 
-  const addSchedule = () => setForm(prev => ({ ...prev, schedule: [...prev.schedule, { day_of_week: 0, start_time: '14:00', end_time: '16:00' }] }))
-  const updateSchedule = (i: number, field: keyof ScheduleItem, value: string | number) =>
+  const addSchedule = () => setForm(prev => ({ ...prev, schedule: [...prev.schedule, { days: [0], start_time: '14:00', end_time: '16:00' }] }))
+  const updateScheduleTime = (i: number, field: 'start_time' | 'end_time', value: string) =>
     setForm(prev => { const s = [...prev.schedule]; s[i] = { ...s[i], [field]: value }; return { ...prev, schedule: s } })
+  const toggleScheduleDay = (i: number, day: number) =>
+    setForm(prev => {
+      const s = [...prev.schedule]
+      const days = s[i].days.includes(day) ? s[i].days.filter(d => d !== day) : [...s[i].days, day]
+      s[i] = { ...s[i], days: days.length === 0 ? [day] : days.sort((a, b) => a - b) }
+      return { ...prev, schedule: s }
+    })
   const removeSchedule = (i: number) => setForm(prev => ({ ...prev, schedule: prev.schedule.filter((_, idx) => idx !== i) }))
 
   const handleSave = async (e: React.FormEvent) => {
@@ -141,16 +154,37 @@ export default function AcademiesPage() {
     }
 
     if (syncTimetable && savedId && form.schedule.length > 0) {
-      await supabase.from('timetable_slots').delete().eq('child_id', selectedChild.id).eq('subject', form.name.trim())
+      // 현재 활성 시간표 버전 조회
+      const { data: activeVersion } = await supabase
+        .from('timetable_versions')
+        .select('id')
+        .eq('child_id', selectedChild.id)
+        .eq('is_active', true)
+        .maybeSingle()
+      const versionId = activeVersion?.id ?? null
+
+      // 기존 슬롯 삭제 (같은 버전의 같은 과목명만)
+      let deleteQuery = supabase.from('timetable_slots')
+        .delete()
+        .eq('child_id', selectedChild.id)
+        .eq('subject', form.name.trim())
+      if (versionId) deleteQuery = deleteQuery.eq('version_id', versionId)
+      else deleteQuery = deleteQuery.is('version_id', null)
+      await deleteQuery
+
       const slotType: 'academy' | 'activity' = form.type === 'academy' ? 'academy' : 'activity'
       for (const sch of form.schedule) {
         if (timeToMinutes(sch.end_time) <= timeToMinutes(sch.start_time)) continue
-        await supabase.from('timetable_slots').insert({
-          child_id: selectedChild.id, day_of_week: sch.day_of_week,
-          start_time: sch.start_time, end_time: sch.end_time,
-          subject: form.name.trim(), teacher: form.teacher || null, location: form.address || null,
-          type: slotType, color: form.color, memo: form.memo || null,
-        })
+        for (const day of sch.days) {
+          await supabase.from('timetable_slots').insert({
+            child_id: selectedChild.id,
+            version_id: versionId,
+            day_of_week: day,
+            start_time: sch.start_time, end_time: sch.end_time,
+            subject: form.name.trim(), teacher: form.teacher || null, location: form.address || null,
+            type: slotType, color: form.color, memo: form.memo || null,
+          })
+        }
       }
     }
 
@@ -431,19 +465,35 @@ export default function AcademiesPage() {
                   </button>
                 </div>
                 {form.schedule.length === 0 && <p className="text-xs text-gray-400 text-center py-3 bg-gray-50 rounded-xl">수업 시간을 추가하세요</p>}
-                <div className="space-y-2">
+                <div className="space-y-3">
                   {form.schedule.map((sch, i) => (
-                    <div key={i} className="flex items-center gap-2 bg-gray-50 rounded-xl p-2">
-                      <select value={sch.day_of_week} onChange={e => updateSchedule(i, 'day_of_week', Number(e.target.value))}
-                        className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none">
-                        {DAYS.map((d, di) => <option key={di} value={di}>{d}</option>)}
-                      </select>
-                      <input type="time" value={sch.start_time} onChange={e => updateSchedule(i, 'start_time', e.target.value)}
-                        className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none flex-1" />
-                      <span className="text-gray-400 text-sm">~</span>
-                      <input type="time" value={sch.end_time} onChange={e => updateSchedule(i, 'end_time', e.target.value)}
-                        className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none flex-1" />
-                      <button type="button" onClick={() => removeSchedule(i)} className="text-gray-300 hover:text-red-400"><X className="w-4 h-4" /></button>
+                    <div key={i} className="bg-gray-50 rounded-xl p-3 space-y-2">
+                      {/* 요일 다중 선택 */}
+                      <div className="flex items-center gap-1 flex-wrap">
+                        {DAYS.map((d, di) => (
+                          <button key={di} type="button"
+                            onClick={() => toggleScheduleDay(i, di)}
+                            className={`w-8 h-8 rounded-lg text-xs font-bold transition-all ${
+                              sch.days.includes(di)
+                                ? 'text-white shadow-sm'
+                                : 'bg-white border border-gray-200 text-gray-400 hover:border-purple-300'
+                            }`}
+                            style={sch.days.includes(di) ? { backgroundColor: form.color } : {}}>
+                            {d}
+                          </button>
+                        ))}
+                        <button type="button" onClick={() => removeSchedule(i)} className="ml-auto text-gray-300 hover:text-red-400 p-1">
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                      {/* 시간 */}
+                      <div className="flex items-center gap-2">
+                        <input type="time" value={sch.start_time} onChange={e => updateScheduleTime(i, 'start_time', e.target.value)}
+                          className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none flex-1" />
+                        <span className="text-gray-400 text-sm flex-shrink-0">~</span>
+                        <input type="time" value={sch.end_time} onChange={e => updateScheduleTime(i, 'end_time', e.target.value)}
+                          className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none flex-1" />
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -512,12 +562,16 @@ function AcademyCard({ ac, expanded, isPaid, isOverdue, onToggleExpand, onEdit, 
         <div className="mt-3 space-y-1.5">
           {ac.schedule?.length > 0 && (
             <div className="flex flex-wrap gap-1">
-              {ac.schedule.map((s, i) => (
-                <span key={i} className="text-xs px-2 py-0.5 rounded-full font-medium"
-                  style={{ backgroundColor: ac.color + '22', color: ac.color }}>
-                  {'월화수목금토일'[s.day_of_week]} {s.start_time.slice(0,5)}~{s.end_time.slice(0,5)}
-                </span>
-              ))}
+              {(ac.schedule as any[]).map((s, i) => {
+                const days: number[] = Array.isArray(s.days) ? s.days : [s.day_of_week ?? 0]
+                const dayStr = days.map((d: number) => '월화수목금토일'[d]).join('·')
+                return (
+                  <span key={i} className="text-xs px-2 py-0.5 rounded-full font-medium"
+                    style={{ backgroundColor: ac.color + '22', color: ac.color }}>
+                    {dayStr} {s.start_time.slice(0,5)}~{s.end_time.slice(0,5)}
+                  </span>
+                )
+              })}
             </div>
           )}
           {ac.monthly_fee && (

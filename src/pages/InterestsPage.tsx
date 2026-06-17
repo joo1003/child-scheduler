@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useChild } from '../contexts/ChildContext'
-import { X, Plus, Play, ExternalLink, ChevronDown, ChevronUp, Search, Loader2 } from 'lucide-react'
+import { X, Plus, Play, ExternalLink, ChevronDown, ChevronUp, Search } from 'lucide-react'
 
 type Video = { id: string; title: string }
 type ImageItem = { url: string; alt: string }
@@ -16,15 +16,6 @@ type InterestInfo = {
   activities: string[]
   funFacts: string[]
   searchQuery: string
-}
-
-type GeneratedInfo = {
-  emoji: string
-  color: string
-  description: string
-  activities: string[]
-  funFacts: string[]
-  searchQueries: string[]
 }
 
 const INTEREST_DB: Record<string, InterestInfo> = {
@@ -211,13 +202,31 @@ const INTEREST_DB: Record<string, InterestInfo> = {
 }
 
 const PRESET_INTERESTS = Object.keys(INTEREST_DB)
-const GENERATED_CACHE_KEY = 'interest_generated_cache'
 
-function loadCache(): Record<string, GeneratedInfo> {
-  try { return JSON.parse(localStorage.getItem(GENERATED_CACHE_KEY) ?? '{}') } catch { return {} }
-}
-function saveCache(cache: Record<string, GeneratedInfo>) {
-  localStorage.setItem(GENERATED_CACHE_KEY, JSON.stringify(cache))
+// 커스텀 주제에 대해 검색 기반 자동 콘텐츠 생성 (API 불필요)
+function getAutoContent(topic: string) {
+  return {
+    emoji: '✨',
+    color: '#6366f1',
+    description: `${topic}에 대해 탐구하고 배워보아요! 영상을 보며 더 깊이 알아가 보세요.`,
+    searchQueries: [
+      `어린이 ${topic}`,
+      `${topic} 배우기`,
+      `${topic} 재미있는 영상`,
+      `${topic} 체험`,
+    ],
+    activities: [
+      `${topic} 관련 영상 찾아보기`,
+      `${topic} 책 읽어보기`,
+      `${topic} 체험 활동 참여하기`,
+      `${topic} 일기 쓰기`,
+    ],
+    funFacts: [
+      `${topic}에 대해 더 알아보면 놀라운 사실들이 가득해요!`,
+      `도서관이나 인터넷에서 ${topic}에 관한 정보를 찾아보세요.`,
+      `친구나 가족에게 ${topic}에 대해 이야기해 보세요!`,
+    ],
+  }
 }
 
 function YouTubeCard({ video }: { video: { id: string; title: string } }) {
@@ -263,14 +272,10 @@ export default function InterestsPage() {
   const { selectedChild, refreshChildren } = useChild()
   const [saving, setSaving] = useState(false)
   const [customInput, setCustomInput] = useState('')
-  const [activeTab, setActiveTab] = useState<'videos' | 'images' | 'facts'>('videos')
+  const [activeTab, setActiveTab] = useState<'videos' | 'facts'>('videos')
   const [expandedInterest, setExpandedInterest] = useState<string | null>(null)
-  const [generatedCache, setGeneratedCache] = useState<Record<string, GeneratedInfo>>(loadCache)
-  const [generating, setGenerating] = useState<Set<string>>(new Set())
 
   const interests: string[] = selectedChild?.interests ?? []
-
-  useEffect(() => { saveCache(generatedCache) }, [generatedCache])
 
   const saveInterests = async (newInterests: string[]) => {
     if (!selectedChild) return false
@@ -278,31 +283,6 @@ export default function InterestsPage() {
     if (error) { alert('저장에 실패했습니다: ' + error.message); return false }
     await refreshChildren()
     return true
-  }
-
-  const generateContent = async (topic: string) => {
-    if (generatedCache[topic] || generating.has(topic)) return
-    setGenerating(prev => new Set(prev).add(topic))
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-      const res = await fetch(`${supabaseUrl}/functions/v1/generate-interest`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session?.access_token}`,
-        },
-        body: JSON.stringify({ topic }),
-      })
-      if (res.ok) {
-        const data: GeneratedInfo = await res.json()
-        setGeneratedCache(prev => ({ ...prev, [topic]: data }))
-      }
-    } catch (e) {
-      console.error('AI 생성 실패:', e)
-    } finally {
-      setGenerating(prev => { const s = new Set(prev); s.delete(topic); return s })
-    }
   }
 
   const toggleInterest = async (tag: string) => {
@@ -313,10 +293,7 @@ export default function InterestsPage() {
       : [...interests, tag]
     const ok = await saveInterests(newInterests)
     setSaving(false)
-    if (ok && !interests.includes(tag)) {
-      setExpandedInterest(tag)
-      if (!INTEREST_DB[tag]) generateContent(tag)
-    }
+    if (ok && !interests.includes(tag)) setExpandedInterest(tag)
   }
 
   const addCustom = async () => {
@@ -324,11 +301,7 @@ export default function InterestsPage() {
     if (!tag || !selectedChild || interests.includes(tag)) return
     setSaving(true)
     const ok = await saveInterests([...interests, tag])
-    if (ok) {
-      setCustomInput('')
-      setExpandedInterest(tag)
-      if (!INTEREST_DB[tag]) generateContent(tag)
-    }
+    if (ok) { setCustomInput(''); setExpandedInterest(tag) }
     setSaving(false)
   }
 
@@ -399,8 +372,7 @@ export default function InterestsPage() {
           <div className="mt-3 flex flex-wrap gap-2">
             {customInterests.map((tag) => (
               <span key={tag} className="flex items-center gap-1 px-3 py-1.5 bg-purple-100 text-purple-700 rounded-full text-sm font-medium">
-                {generatedCache[tag]?.emoji ?? (generating.has(tag) ? '⏳' : '✨')}
-                {tag}
+                ✨ {tag}
                 <button onClick={() => removeInterest(tag)} className="hover:text-purple-900 ml-0.5">
                   <X className="w-3 h-3" />
                 </button>
@@ -421,36 +393,24 @@ export default function InterestsPage() {
         <div className="space-y-3">
           {allActive.map((tag) => {
             const info = INTEREST_DB[tag]
-            const generated = generatedCache[tag]
-            const isGenerating = generating.has(tag)
+            const auto = info ? null : getAutoContent(tag)
             const isExpanded = expandedInterest === tag
-            const color = info?.color ?? generated?.color ?? '#6366f1'
-            const emoji = info?.emoji ?? generated?.emoji ?? '✨'
-            const description = info?.description ?? generated?.description ?? ''
+            const color = info?.color ?? auto?.color ?? '#6366f1'
+            const emoji = info?.emoji ?? auto?.emoji ?? '✨'
+            const description = info?.description ?? auto?.description ?? ''
 
             return (
               <div key={tag} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
                 {/* 헤더 */}
                 <button className="w-full flex items-center justify-between p-4 text-left hover:bg-gray-50 transition-colors"
-                  onClick={() => {
-                    setExpandedInterest(isExpanded ? null : tag)
-                    if (!info && !generated && !isGenerating) generateContent(tag)
-                  }}>
+                  onClick={() => setExpandedInterest(isExpanded ? null : tag)}>
                   <div className="flex items-center gap-3 min-w-0">
                     <div className="w-11 h-11 rounded-2xl flex items-center justify-center text-xl flex-shrink-0"
                       style={{ backgroundColor: color + '20' }}>
-                      {isGenerating ? <Loader2 className="w-5 h-5 animate-spin" style={{ color }} /> : emoji}
+                      {emoji}
                     </div>
                     <div className="min-w-0">
-                      <h3 className="font-bold text-gray-800 text-sm md:text-base flex items-center gap-2">
-                        {tag}
-                        {!info && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
-                            style={{ backgroundColor: color + '20', color }}>
-                            {isGenerating ? 'AI 생성 중...' : 'AI'}
-                          </span>
-                        )}
-                      </h3>
+                      <h3 className="font-bold text-gray-800 text-sm md:text-base">{tag}</h3>
                       {description && (
                         <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">{description.slice(0, 45)}...</p>
                       )}
@@ -465,136 +425,74 @@ export default function InterestsPage() {
 
                 {isExpanded && (
                   <div className="border-t border-gray-100">
-                    {/* 로딩 중 */}
-                    {isGenerating && !generated && (
-                      <div className="flex flex-col items-center justify-center py-12 gap-3">
-                        <Loader2 className="w-8 h-8 animate-spin" style={{ color }} />
-                        <p className="text-sm text-gray-400">AI가 "{tag}" 관련 콘텐츠를 생성 중이에요...</p>
-                      </div>
-                    )}
+                    {/* 탭 */}
+                    <div className="flex border-b border-gray-100 px-4 overflow-x-auto">
+                      {([['videos', '📹 영상'], ['facts', '💡 사실']] as const).map(([t, label]) => (
+                        <button key={t} onClick={() => setActiveTab(t)}
+                          className={`px-3 md:px-4 py-3 text-xs font-medium transition-colors border-b-2 -mb-px flex-shrink-0 ${
+                            activeTab === t ? 'border-current font-semibold' : 'border-transparent text-gray-400 hover:text-gray-600'
+                          }`}
+                          style={activeTab === t ? { color, borderColor: color } : {}}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
 
-                    {/* 프리셋 콘텐츠 */}
-                    {info && (
-                      <>
-                        <div className="flex border-b border-gray-100 px-4 overflow-x-auto">
-                          {([['videos', '📹 영상'], ['images', '🖼️ 사진'], ['facts', '💡 사실']] as const).map(([t, label]) => (
-                            <button key={t} onClick={() => setActiveTab(t)}
-                              className={`px-3 md:px-4 py-3 text-xs font-medium transition-colors border-b-2 -mb-px flex-shrink-0 ${
-                                activeTab === t ? 'border-current font-semibold' : 'border-transparent text-gray-400 hover:text-gray-600'
-                              }`}
-                              style={activeTab === t ? { color, borderColor: color } : {}}>
-                              {label}
-                            </button>
+                    <div className="p-4">
+                      {/* 영상 탭 */}
+                      {activeTab === 'videos' && (
+                        <div className="space-y-3">
+                          {/* 프리셋: 유튜브 카드 */}
+                          {info && (
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                              {info.videos.map((v) => <YouTubeCard key={v.id} video={v} />)}
+                            </div>
+                          )}
+                          {/* 커스텀 또는 프리셋 모두: 검색 링크 */}
+                          {(auto?.searchQueries ?? [info?.searchQuery ?? '']).filter(Boolean).map((q) => (
+                            <YouTubeSearchCard key={q} query={q} color={color} />
                           ))}
-                        </div>
-                        <div className="p-4">
-                          {activeTab === 'videos' && (
-                            <div>
-                              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                                {info.videos.map((v) => <YouTubeCard key={v.id} video={v} />)}
-                              </div>
-                              <a href={`https://www.youtube.com/results?search_query=${encodeURIComponent(info.searchQuery)}`}
-                                target="_blank" rel="noopener noreferrer"
-                                className="mt-3 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition-colors border-2"
-                                style={{ color, borderColor: color + '40', backgroundColor: color + '08' }}>
-                                <Search className="w-4 h-4" />
-                                "{info.searchQuery}" 유튜브에서 더 보기
-                                <ExternalLink className="w-3 h-3" />
-                              </a>
-                            </div>
-                          )}
-                          {activeTab === 'images' && (
-                            <div>
-                              <div className="grid grid-cols-3 gap-3">
-                                {info.images.map((img) => (
-                                  <div key={img.url} className="rounded-xl overflow-hidden shadow-sm">
-                                    <img src={img.url} alt={img.alt} className="w-full h-24 md:h-36 object-cover" />
-                                    <p className="text-xs text-center text-gray-500 py-1.5 bg-gray-50">{img.alt}</p>
-                                  </div>
-                                ))}
-                              </div>
-                              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-2">
-                                {info.activities.map((a) => (
-                                  <div key={a} className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs"
-                                    style={{ backgroundColor: color + '10', color }}>
-                                    <span className="font-bold">✓</span> {a}
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                          {activeTab === 'facts' && (
-                            <div className="space-y-3">
-                              {info.funFacts.map((fact, i) => (
-                                <div key={i} className="flex items-start gap-3 p-4 rounded-xl"
-                                  style={{ backgroundColor: color + '10' }}>
-                                  <span className="text-xl flex-shrink-0">{['🌟', '🎯', '🔥', '💎'][i % 4]}</span>
-                                  <p className="text-sm font-medium" style={{ color }}>{fact}</p>
-                                </div>
-                              ))}
-                            </div>
+                          {info && (
+                            <a href={`https://www.youtube.com/results?search_query=${encodeURIComponent(info.searchQuery)}`}
+                              target="_blank" rel="noopener noreferrer"
+                              className="flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium border-2"
+                              style={{ color, borderColor: color + '40', backgroundColor: color + '08' }}>
+                              <Search className="w-4 h-4" />
+                              "{info.searchQuery}" 유튜브에서 더 보기
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
                           )}
                         </div>
-                      </>
-                    )}
+                      )}
 
-                    {/* AI 생성 콘텐츠 */}
-                    {!info && generated && (
-                      <div className="p-4 space-y-4">
-                        {/* 설명 */}
-                        <div className="p-4 rounded-xl" style={{ backgroundColor: color + '10' }}>
-                          <p className="text-sm text-gray-700 leading-relaxed">{generated.description}</p>
-                        </div>
-
-                        {/* 유튜브 검색 */}
-                        <div>
-                          <p className="text-xs font-semibold text-gray-500 mb-2">📹 유튜브 영상 검색</p>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                            {generated.searchQueries.map((q) => (
-                              <YouTubeSearchCard key={q} query={q} color={color} />
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* 활동 */}
-                        <div>
-                          <p className="text-xs font-semibold text-gray-500 mb-2">🎯 추천 활동</p>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                            {generated.activities.map((a) => (
-                              <div key={a} className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm"
-                                style={{ backgroundColor: color + '10', color }}>
-                                <span className="font-bold text-base">✓</span> {a}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* 재미있는 사실 */}
-                        <div>
-                          <p className="text-xs font-semibold text-gray-500 mb-2">💡 재미있는 사실</p>
+                      {/* 사실/활동 탭 */}
+                      {activeTab === 'facts' && (
+                        <div className="space-y-4">
+                          {/* 재미있는 사실 */}
                           <div className="space-y-2">
-                            {generated.funFacts.map((fact, i) => (
+                            {(info?.funFacts ?? auto?.funFacts ?? []).map((fact, i) => (
                               <div key={i} className="flex items-start gap-3 p-3 rounded-xl"
                                 style={{ backgroundColor: color + '10' }}>
-                                <span className="text-lg flex-shrink-0">{['🌟', '🎯', '🔥'][i % 3]}</span>
+                                <span className="text-xl flex-shrink-0">{['🌟', '🎯', '🔥', '💎'][i % 4]}</span>
                                 <p className="text-sm font-medium" style={{ color }}>{fact}</p>
                               </div>
                             ))}
                           </div>
+                          {/* 추천 활동 */}
+                          <div>
+                            <p className="text-xs font-semibold text-gray-500 mb-2">🎯 추천 활동</p>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                              {(info?.activities ?? auto?.activities ?? []).map((a) => (
+                                <div key={a} className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm"
+                                  style={{ backgroundColor: color + '10', color }}>
+                                  <span className="font-bold">✓</span> {a}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    )}
-
-                    {/* AI 생성 실패 or 아직 시작 안 함 */}
-                    {!info && !generated && !isGenerating && (
-                      <div className="p-6 text-center">
-                        <p className="text-gray-400 text-sm mb-3">콘텐츠를 불러오지 못했어요</p>
-                        <button onClick={() => generateContent(tag)}
-                          className="px-4 py-2 bg-purple-500 text-white rounded-xl text-sm font-medium hover:bg-purple-600">
-                          다시 생성하기
-                        </button>
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
