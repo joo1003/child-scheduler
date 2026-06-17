@@ -272,7 +272,7 @@ export default function InterestsPage() {
   const { selectedChild, refreshChildren } = useChild()
   const [saving, setSaving] = useState(false)
   const [customInput, setCustomInput] = useState('')
-  const [activeTab, setActiveTab] = useState<'videos' | 'facts'>('videos')
+  const [activeTab, setActiveTab] = useState<'videos' | 'images' | 'facts'>('videos')
   const [expandedInterest, setExpandedInterest] = useState<string | null>(null)
 
   const interests: string[] = selectedChild?.interests ?? []
@@ -425,10 +425,13 @@ export default function InterestsPage() {
 
                 {isExpanded && (
                   <div className="border-t border-gray-100">
-                    {/* 탭 */}
+                    {/* 탭 — 프리셋은 3개, 커스텀은 2개 */}
                     <div className="flex border-b border-gray-100 px-4 overflow-x-auto">
-                      {([['videos', '📹 영상'], ['facts', '💡 사실']] as const).map(([t, label]) => (
-                        <button key={t} onClick={() => setActiveTab(t)}
+                      {(info
+                        ? [['videos', '📹 영상'], ['images', '🖼️ 사진'], ['facts', '💡 사실']]
+                        : [['videos', '📹 영상'], ['facts', '💡 사실']]
+                      ).map(([t, label]) => (
+                        <button key={t} onClick={() => setActiveTab(t as typeof activeTab)}
                           className={`px-3 md:px-4 py-3 text-xs font-medium transition-colors border-b-2 -mb-px flex-shrink-0 ${
                             activeTab === t ? 'border-current font-semibold' : 'border-transparent text-gray-400 hover:text-gray-600'
                           }`}
@@ -442,33 +445,53 @@ export default function InterestsPage() {
                       {/* 영상 탭 */}
                       {activeTab === 'videos' && (
                         <div className="space-y-3">
-                          {/* 프리셋: 유튜브 카드 */}
-                          {info && (
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                              {info.videos.map((v) => <YouTubeCard key={v.id} video={v} />)}
-                            </div>
-                          )}
-                          {/* 커스텀 또는 프리셋 모두: 검색 링크 */}
-                          {(auto?.searchQueries ?? [info?.searchQuery ?? '']).filter(Boolean).map((q) => (
-                            <YouTubeSearchCard key={q} query={q} color={color} />
-                          ))}
-                          {info && (
-                            <a href={`https://www.youtube.com/results?search_query=${encodeURIComponent(info.searchQuery)}`}
-                              target="_blank" rel="noopener noreferrer"
-                              className="flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium border-2"
-                              style={{ color, borderColor: color + '40', backgroundColor: color + '08' }}>
-                              <Search className="w-4 h-4" />
-                              "{info.searchQuery}" 유튜브에서 더 보기
-                              <ExternalLink className="w-3 h-3" />
-                            </a>
+                          {info ? (
+                            <>
+                              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                {info.videos.map((v) => <YouTubeCard key={v.id} video={v} />)}
+                              </div>
+                              <a href={`https://www.youtube.com/results?search_query=${encodeURIComponent(info.searchQuery)}`}
+                                target="_blank" rel="noopener noreferrer"
+                                className="flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium border-2"
+                                style={{ color, borderColor: color + '40', backgroundColor: color + '08' }}>
+                                <Search className="w-4 h-4" />
+                                "{info.searchQuery}" 유튜브에서 더 보기
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
+                            </>
+                          ) : (
+                            auto?.searchQueries.map((q) => (
+                              <YouTubeSearchCard key={q} query={q} color={color} />
+                            ))
                           )}
                         </div>
                       )}
 
-                      {/* 사실/활동 탭 */}
+                      {/* 사진 탭 (프리셋 전용) */}
+                      {activeTab === 'images' && info && (
+                        <div>
+                          <div className="grid grid-cols-3 gap-3">
+                            {info.images.map((img) => (
+                              <div key={img.url} className="rounded-xl overflow-hidden shadow-sm">
+                                <img src={img.url} alt={img.alt} className="w-full h-24 md:h-36 object-cover" />
+                                <p className="text-xs text-center text-gray-500 py-1.5 bg-gray-50">{img.alt}</p>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-2">
+                            {info.activities.map((a) => (
+                              <div key={a} className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs"
+                                style={{ backgroundColor: color + '10', color }}>
+                                <span className="font-bold">✓</span> {a}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 사실 탭 */}
                       {activeTab === 'facts' && (
                         <div className="space-y-4">
-                          {/* 재미있는 사실 */}
                           <div className="space-y-2">
                             {(info?.funFacts ?? auto?.funFacts ?? []).map((fact, i) => (
                               <div key={i} className="flex items-start gap-3 p-3 rounded-xl"
@@ -478,7 +501,6 @@ export default function InterestsPage() {
                               </div>
                             ))}
                           </div>
-                          {/* 추천 활동 */}
                           <div>
                             <p className="text-xs font-semibold text-gray-500 mb-2">🎯 추천 활동</p>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
