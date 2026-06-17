@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom'
-import { BookOpen, Calendar, Clock, Image, Bell, LogOut, Plus, ChevronDown, MessageCircle, Copy, Check, School, Star, Gamepad2, Sparkles } from 'lucide-react'
+import { BookOpen, Calendar, Clock, Image, Bell, LogOut, Plus, ChevronDown, MessageCircle, Copy, Check, School, Star, Gamepad2, Sparkles, Settings } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useChild } from '../contexts/ChildContext'
 import { useState } from 'react'
@@ -7,6 +7,7 @@ import ChildModal from './ChildModal'
 import MascotCharacter from './MascotCharacter'
 import MusicPlayer from './MusicPlayer'
 import CharacterSetupModal from './CharacterSetupModal'
+import FamilySettingsModal from './FamilySettingsModal'
 
 const navItems = [
   { to: '/timetable', icon: Clock, label: '시간표' },
@@ -33,6 +34,7 @@ export default function Layout() {
   const [showFamilyInfo, setShowFamilyInfo] = useState(false)
   const [copied, setCopied] = useState(false)
   const [showCharacterSetup, setShowCharacterSetup] = useState(false)
+  const [showFamilySettings, setShowFamilySettings] = useState(false)
   const [mascot, setMascot] = useState<MascotData | null>(null)
   const [showMascot, setShowMascot] = useState(false)
 
@@ -185,9 +187,14 @@ export default function Layout() {
                 <p className="text-xs text-gray-400">{myMember?.role === 'child' ? '아이' : '부모'}</p>
               </div>
             </div>
-            <button onClick={signOut} className="text-gray-400 hover:text-red-500 transition-colors ml-2" title="로그아웃">
-              <LogOut className="w-4 h-4" />
-            </button>
+            <div className="flex items-center gap-1 ml-2">
+              <button onClick={() => setShowFamilySettings(true)} className="text-gray-400 hover:text-purple-500 transition-colors" title="가족 설정">
+                <Settings className="w-4 h-4" />
+              </button>
+              <button onClick={signOut} className="text-gray-400 hover:text-red-500 transition-colors" title="로그아웃">
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         </div>
       </aside>
@@ -212,6 +219,10 @@ export default function Layout() {
       {/* Modals */}
       {showChildModal && (
         <ChildModal onClose={() => setShowChildModal(false)} onSaved={refreshChildren} />
+      )}
+
+      {showFamilySettings && (
+        <FamilySettingsModal onClose={() => setShowFamilySettings(false)} />
       )}
 
       {showCharacterSetup && (
