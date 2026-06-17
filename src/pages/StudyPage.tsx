@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { BookOpen, Calculator, Globe, ChevronLeft, Star, Trophy, RefreshCw, CheckCircle, XCircle } from 'lucide-react'
+import { ChevronLeft, Star, Trophy, RefreshCw, CheckCircle, XCircle } from 'lucide-react'
 import { useChild } from '../contexts/ChildContext'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -76,7 +76,7 @@ function generateMath(grade: number, seed: number): Question[] {
         const ansNum = num1 + num2
         const ans = ansNum >= den ? `${Math.floor(ansNum / den)}과 ${ansNum % den}/${den}` : `${ansNum}/${den}`
         const wrongs = [`${num1 + num2 + 1}/${den}`, `${num1}/${den}`, `${num2 + 1}/${den}`]
-        const choices = shuffle([ans, ...wrongs], s)
+        const choices: string[] = shuffleArr([ans, ...wrongs], s)
         qs.push({ q: `${num1}/${den} + ${num2}/${den} = ?`, choices, answer: choices.indexOf(ans) })
       } else if (type === 1) {
         const a = ri(1, 99, s), b = ri(1, 99, s + 1)
@@ -302,15 +302,15 @@ export default function StudyPage() {
   const childId = selectedChild?.id ?? 'default'
 
   const [subject, setSubject] = useState<Subject | null>(null)
-  const [seed, setSeed] = useState(Date.now())
   const [questions, setQuestions] = useState<Question[]>([])
   const [current, setCurrent] = useState(0)
   const [selected, setSelected] = useState<number | null>(null)
   const [answers, setAnswers] = useState<boolean[]>([])
   const [showResult, setShowResult] = useState(false)
   const [points, setPoints] = useState(getPoints(childId))
-  const [sessionCorrect, setSessionCorrect] = useState(0)
-  const [totalAnswered, setTotalAnswered] = useState(0)
+  const [, setSeed] = useState(Date.now())
+  const [, setSessionCorrect] = useState(0)
+  const [, setTotalAnswered] = useState(0)
 
   useEffect(() => {
     setPoints(getPoints(childId))
