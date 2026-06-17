@@ -29,7 +29,6 @@ import { useState } from 'react'
     D. c6,r6-7: 나라 (국가, 나라)
 */
 
-type CellDef = { answer: string; clueH?: number; clueV?: string }
 
 // 솔루션 좌표 [row, col, char]
 const SOLUTION_CELLS: [number, number, string][] = [
@@ -53,10 +52,10 @@ const ACROSS_CLUES = [
 ]
 
 const DOWN_CLUES = [
-  { num: 'A', r: 0, c: 0, len: 2, answer: '사랑', hint: '좋아하는 마음' },
-  { num: 'B', r: 2, c: 2, len: 2, answer: '하교', hint: '수업 후 집에 돌아감' },
-  { num: 'C', r: 4, c: 4, len: 2, answer: '바람', hint: '공기가 움직이는 것' },
-  { num: 'D', r: 6, c: 6, len: 2, answer: '나라', hint: '우리가 사는 국가' },
+  { num: 6, r: 0, c: 0, len: 2, answer: '사랑', hint: '좋아하는 마음' },
+  { num: 7, r: 2, c: 2, len: 2, answer: '하교', hint: '수업 후 집에 돌아감' },
+  { num: 8, r: 4, c: 4, len: 2, answer: '바람', hint: '공기가 움직이는 것' },
+  { num: 9, r: 6, c: 6, len: 2, answer: '나라', hint: '우리가 사는 국가' },
 ]
 
 type Grid = (string | null)[][]

@@ -46,8 +46,6 @@ export default function MusicPlayer() {
   const [volume, setVolume] = useState(0.4)
   const [isMuted, setIsMuted] = useState(false)
   const [isExpanded, setIsExpanded] = useState(false)
-  const [noteIndex, setNoteIndex] = useState(0)
-  const [patternIndex, setPatternIndex] = useState(0)
 
   const ctxRef = useRef<AudioContext | null>(null)
   const masterRef = useRef<GainNode | null>(null)
@@ -136,9 +134,7 @@ export default function MusicPlayer() {
     noteIdxRef.current++
     if (noteIdxRef.current % pattern.length === 0) {
       patternIdxRef.current++
-      setPatternIndex(patternIdxRef.current)
     }
-    setNoteIndex(noteIdxRef.current)
 
     timeoutRef.current = setTimeout(scheduleNext, tempo * 1000)
   }, [playNote])

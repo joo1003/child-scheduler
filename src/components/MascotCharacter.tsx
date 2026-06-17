@@ -28,10 +28,10 @@ const ACCESSORIES: Record<string, string> = {
 export default function MascotCharacter({ imageUrl, name, accessory, onRemove }: MascotProps) {
   const [pos, setPos] = useState({ x: 150, y: 200 })
   const [bubble, setBubble] = useState<string | null>(null)
-  const [isPixelated, setIsPixelated] = useState(false)
+  const [isPixelated] = useState(false)
   const posRef = useRef({ x: 150, y: 200 })
   const velRef = useRef({ x: 1.5, y: 1 })
-  const rafRef = useRef<number>()
+  const rafRef = useRef<number>(0)
   const SIZE = 80
 
   // Random speed changes for more natural movement
