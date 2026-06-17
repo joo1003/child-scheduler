@@ -2,7 +2,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import {
   BookOpen, Calendar, Clock, Image, Bell, LogOut, Plus, ChevronDown,
   MessageCircle, Copy, Check, School, Star, Gamepad2, Sparkles,
-  Settings, Menu, X, Home,
+  Settings, Menu, X, Home, GraduationCap,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useChild } from '../contexts/ChildContext'
@@ -22,6 +22,7 @@ const navItems = [
   { to: '/notices', icon: Bell, label: '알림장' },
   { to: '/chat', icon: MessageCircle, label: '채팅' },
   { to: '/games', icon: Gamepad2, label: '게임' },
+  { to: '/study', icon: GraduationCap, label: '공부' },
   { to: '/interests', icon: Star, label: '관심사' },
 ]
 
@@ -29,9 +30,9 @@ const navItems = [
 const mobileNavItems = [
   { to: '/dashboard', icon: Home, label: '홈' },
   { to: '/timetable', icon: Clock, label: '시간표' },
+  { to: '/study', icon: GraduationCap, label: '공부' },
   { to: '/calendar', icon: Calendar, label: '달력' },
   { to: '/notices', icon: Bell, label: '알림장' },
-  { to: '/interests', icon: Star, label: '관심사' },
 ]
 
 interface MascotData { imageUrl: string; name: string; accessory: string }
